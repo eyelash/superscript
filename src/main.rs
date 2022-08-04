@@ -22,6 +22,85 @@ fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 	Ok(())
 }
 
+enum OperatorLevel {
+	BinaryLeftToRight(&'static [Operator]),
+	BinaryRightToLeft(&'static [Operator]),
+	UnaryPrefix(&'static [Operator]),
+	UnaryPostfix(&'static [Operator]),
+}
+
+struct Operator(&'static str);
+
+use OperatorLevel::{BinaryLeftToRight, BinaryRightToLeft, UnaryPrefix, UnaryPostfix};
+
+const OPERATORS: &'static [OperatorLevel] = &[
+	BinaryLeftToRight(&[Operator("*"), Operator("/"), Operator("%")]),
+	BinaryLeftToRight(&[Operator("+"), Operator("-")]),
+	BinaryLeftToRight(&[Operator("<="), Operator("<"), Operator(">="), Operator(">")]),
+	BinaryLeftToRight(&[Operator("=="), Operator("!=")]),
+];
+
+fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<(), Cursor<'a>> {
+	fn parse_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [Operator]) -> Option<&'static str> {
+		for op in operators {
+			if let Ok(_) = cursor.parse(op.0) {
+				return Some(op.0);
+			}
+		}
+		return None;
+	}
+	if level < OPERATORS.len() {
+		match OPERATORS[level] {
+			BinaryLeftToRight(operators) => {
+				parse_expression(cursor, level + 1)?;
+				skip_comments(cursor)?;
+				while let Some(_) = parse_operator(cursor, operators) {
+					skip_comments(cursor)?;
+					parse_expression(cursor, level + 1)?;
+					skip_comments(cursor)?;
+				}
+			},
+			BinaryRightToLeft(operators) => {
+				parse_expression(cursor, level + 1)?;
+				skip_comments(cursor)?;
+				if let Some(_) = parse_operator(cursor, operators) {
+					skip_comments(cursor)?;
+					parse_expression(cursor, level)?;
+				}
+			},
+			UnaryPrefix(operators) => {
+				if let Some(_) = parse_operator(cursor, operators) {
+					skip_comments(cursor)?;
+					parse_expression(cursor, level)?;
+				} else {
+					parse_expression(cursor, level + 1)?;
+				}
+			},
+			UnaryPostfix(operators) => {
+				parse_expression(cursor, level + 1)?;
+				skip_comments(cursor)?;
+				while let Some(_) = parse_operator(cursor, operators) {
+					skip_comments(cursor)?;
+				}
+			},
+		}
+	} else {
+		if let Ok(_) = cursor.parse('(') {
+			skip_comments(cursor)?;
+			parse_expression(cursor, 0)?;
+			skip_comments(cursor)?;
+			cursor.parse(')')?;
+		} else if let Ok(_) = cursor.parse(peek(identifier_start_char)) {
+			parse_identifier(cursor)?;
+		} else if let Ok(_) = cursor.parse(peek('0'..='9')) {
+			parse_number(cursor)?;
+		} else {
+			return cursor.error();
+		}
+	}
+	Ok(())
+}
+
 fn identifier_start_char(c: char) -> bool {
 	('a'..='z').contains(&c) || ('A'..='Z').contains(&c) || c == '_'
 }
@@ -40,6 +119,20 @@ fn keyword(k: &'static str) -> impl Parser {
 fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<f64, Cursor<'a>> {
 	let s = cursor.parse(repeat('0'..='9'))?;
 	Ok(s.parse().unwrap())
+}
+
+fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+	if let Ok(_) = cursor.parse(keyword("let")) {
+		skip_comments(cursor)?;
+		parse_identifier(cursor)?;
+		skip_comments(cursor)?;
+		cursor.parse(';')?;
+	} else {
+		parse_expression(cursor, 0)?;
+		skip_comments(cursor)?;
+		cursor.parse(';')?;
+	}
+	Ok(())
 }
 
 fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
@@ -72,6 +165,10 @@ fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 		skip_comments(cursor)?;
 		cursor.parse('{')?;
 		skip_comments(cursor)?;
+		while let Ok(_) = cursor.parse(not('}')) {
+			parse_statement(cursor)?;
+			skip_comments(cursor)?;
+		}
 		cursor.parse('}')?;
 		Ok(())
 	} else {
