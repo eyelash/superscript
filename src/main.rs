@@ -1,6 +1,8 @@
 mod parser;
+mod ast;
 
 use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor};
+use ast::Expression;
 
 fn any_char(_c: char) -> bool {
 	true
@@ -23,28 +25,52 @@ fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 }
 
 enum OperatorLevel {
-	BinaryLeftToRight(&'static [Operator]),
-	BinaryRightToLeft(&'static [Operator]),
-	UnaryPrefix(&'static [Operator]),
-	UnaryPostfix(&'static [Operator]),
+	BinaryLeftToRight(&'static [BinaryOperator]),
+	BinaryRightToLeft(&'static [BinaryOperator]),
+	UnaryPrefix(&'static [UnaryOperator]),
+	UnaryPostfix(&'static [UnaryOperator]),
 }
 
-struct Operator(&'static str);
+struct BinaryOperator(&'static str, for <'a> fn(Expression<'a>, Expression<'a>) -> Expression<'a>);
+struct UnaryOperator(&'static str, for <'a> fn(Expression<'a>) -> Expression<'a>);
 
 use OperatorLevel::{BinaryLeftToRight, BinaryRightToLeft, UnaryPrefix, UnaryPostfix};
 
 const OPERATORS: &'static [OperatorLevel] = &[
-	BinaryLeftToRight(&[Operator("*"), Operator("/"), Operator("%")]),
-	BinaryLeftToRight(&[Operator("+"), Operator("-")]),
-	BinaryLeftToRight(&[Operator("<="), Operator("<"), Operator(">="), Operator(">")]),
-	BinaryLeftToRight(&[Operator("=="), Operator("!=")]),
+	BinaryLeftToRight(&[
+		BinaryOperator("==", Expression::equal),
+		BinaryOperator("!=", Expression::not_equal),
+	]),
+	BinaryLeftToRight(&[
+		BinaryOperator("<=", Expression::less_than_or_equal),
+		BinaryOperator("<", Expression::less_than),
+		BinaryOperator(">=", Expression::greater_than),
+		BinaryOperator(">", Expression::greater_than_or_equal),
+	]),
+	BinaryLeftToRight(&[
+		BinaryOperator("+", Expression::add),
+		BinaryOperator("-", Expression::subtract),
+	]),
+	BinaryLeftToRight(&[
+		BinaryOperator("*", Expression::multiply),
+		BinaryOperator("/", Expression::divide),
+		BinaryOperator("%", Expression::remainder),
+	]),
 ];
 
-fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<(), Cursor<'a>> {
-	fn parse_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [Operator]) -> Option<&'static str> {
-		for op in operators {
-			if let Ok(_) = cursor.parse(op.0) {
-				return Some(op.0);
+fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Cursor<'a>> {
+	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<&'static BinaryOperator> {
+		for operator in operators {
+			if let Ok(_) = cursor.parse(operator.0) {
+				return Some(operator);
+			}
+		}
+		return None;
+	}
+	fn parse_unary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [UnaryOperator]) -> Option<&'static UnaryOperator> {
+		for operator in operators {
+			if let Ok(_) = cursor.parse(operator.0) {
+				return Some(operator);
 			}
 		}
 		return None;
@@ -52,53 +78,63 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<(), Cur
 	if level < OPERATORS.len() {
 		match OPERATORS[level] {
 			BinaryLeftToRight(operators) => {
-				parse_expression(cursor, level + 1)?;
+				let mut left = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				while let Some(_) = parse_operator(cursor, operators) {
+				while let Some(operator) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
-					parse_expression(cursor, level + 1)?;
+					let right = parse_expression(cursor, level + 1)?;
+					left = operator.1(left, right);
 					skip_comments(cursor)?;
 				}
+				Ok(left)
 			},
 			BinaryRightToLeft(operators) => {
-				parse_expression(cursor, level + 1)?;
+				let left = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				if let Some(_) = parse_operator(cursor, operators) {
+				if let Some(operator) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
-					parse_expression(cursor, level)?;
+					let right = parse_expression(cursor, level)?;
+					Ok(operator.1(left, right))
+				} else {
+					Ok(left)
 				}
 			},
 			UnaryPrefix(operators) => {
-				if let Some(_) = parse_operator(cursor, operators) {
+				if let Some(operator) = parse_unary_operator(cursor, operators) {
 					skip_comments(cursor)?;
-					parse_expression(cursor, level)?;
+					let expression = parse_expression(cursor, level)?;
+					Ok(operator.1(expression))
 				} else {
-					parse_expression(cursor, level + 1)?;
+					parse_expression(cursor, level + 1)
 				}
 			},
 			UnaryPostfix(operators) => {
-				parse_expression(cursor, level + 1)?;
+				let mut expression = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				while let Some(_) = parse_operator(cursor, operators) {
+				while let Some(operator) = parse_unary_operator(cursor, operators) {
+					expression = operator.1(expression);
 					skip_comments(cursor)?;
 				}
+				Ok(expression)
 			},
 		}
 	} else {
 		if let Ok(_) = cursor.parse('(') {
 			skip_comments(cursor)?;
-			parse_expression(cursor, 0)?;
+			let expression = parse_expression(cursor, 0)?;
 			skip_comments(cursor)?;
 			cursor.parse(')')?;
+			Ok(expression)
 		} else if let Ok(_) = cursor.parse(peek(identifier_start_char)) {
-			parse_identifier(cursor)?;
+			let s = parse_identifier(cursor)?;
+			Ok(Expression::Name(s))
 		} else if let Ok(_) = cursor.parse(peek('0'..='9')) {
-			parse_number(cursor)?;
+			let s = parse_number(cursor)?;
+			Ok(Expression::Number(s))
 		} else {
-			return cursor.error();
+			cursor.error()
 		}
 	}
-	Ok(())
 }
 
 fn identifier_start_char(c: char) -> bool {
@@ -116,9 +152,8 @@ fn keyword(k: &'static str) -> impl Parser {
 	sequence!(k, not(identifier_char))
 }
 
-fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<f64, Cursor<'a>> {
-	let s = cursor.parse(repeat('0'..='9'))?;
-	Ok(s.parse().unwrap())
+fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Cursor<'a>> {
+	cursor.parse(repeat('0'..='9'))
 }
 
 fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
@@ -128,7 +163,9 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 		skip_comments(cursor)?;
 		cursor.parse(';')?;
 	} else {
-		parse_expression(cursor, 0)?;
+		let expression = parse_expression(cursor, 0)?;
+		let result = interpret_expression(&expression);
+		println!("result = {}", result);
 		skip_comments(cursor)?;
 		cursor.parse(';')?;
 	}
@@ -249,6 +286,39 @@ fn print_error<W: std::io::Write>(cursor: &Cursor, mut write: W) -> std::io::Res
 	}
 	writeln!(write, "^")?;
 	Ok(())
+}
+
+fn interpret_expression(expression: &Expression) -> f64 {
+	match expression {
+		Expression::Number(s) => s.parse().unwrap(),
+		Expression::Name(s) => panic!(),
+		Expression::ArithmeticExpression(expression) => {
+			let left = interpret_expression(&expression.left);
+			let right = interpret_expression(&expression.right);
+			match expression.operation {
+				ast::ArithmeticOperation::Add => left + right,
+				ast::ArithmeticOperation::Subtract => left - right,
+				ast::ArithmeticOperation::Multiply => left * right,
+				ast::ArithmeticOperation::Divide => left / right,
+				ast::ArithmeticOperation::Remainder => left % right,
+			}
+		},
+		Expression::RelationalExpression(expression) => {
+			fn to_f64(b: bool) -> f64 {
+				if b { 1.0 } else { 0.0 }
+			}
+			let left = interpret_expression(&expression.left);
+			let right = interpret_expression(&expression.right);
+			match expression.operation {
+				ast::RelationalOperation::Equal => to_f64(left == right),
+				ast::RelationalOperation::NotEqual => to_f64(left != right),
+				ast::RelationalOperation::LessThan => to_f64(left < right),
+				ast::RelationalOperation::LessThanOrEqual => to_f64(left <= right),
+				ast::RelationalOperation::GreaterThan => to_f64(left > right),
+				ast::RelationalOperation::GreaterThanOrEqual => to_f64(left >= right),
+			}
+		},
+	}
 }
 
 fn main() {
