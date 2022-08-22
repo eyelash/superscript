@@ -1,5 +1,6 @@
 mod parser;
 mod ast;
+mod interpreter;
 
 use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor};
 use ast::Expression;
@@ -37,6 +38,9 @@ struct UnaryOperator(&'static str, for <'a> fn(Expression<'a>) -> Expression<'a>
 use OperatorLevel::{BinaryLeftToRight, BinaryRightToLeft, UnaryPrefix, UnaryPostfix};
 
 const OPERATORS: &'static [OperatorLevel] = &[
+	BinaryRightToLeft(&[
+		BinaryOperator("=", Expression::assign),
+	]),
 	BinaryLeftToRight(&[
 		BinaryOperator("==", Expression::equal),
 		BinaryOperator("!=", Expression::not_equal),
@@ -119,21 +123,41 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			},
 		}
 	} else {
-		if let Ok(_) = cursor.parse('(') {
+		let mut expression = if let Ok(_) = cursor.parse('(') {
 			skip_comments(cursor)?;
 			let expression = parse_expression(cursor, 0)?;
 			skip_comments(cursor)?;
 			cursor.parse(')')?;
-			Ok(expression)
+			expression
 		} else if let Ok(_) = cursor.parse(peek(identifier_start_char)) {
 			let s = parse_identifier(cursor)?;
-			Ok(Expression::Name(s))
+			Expression::Name(s)
 		} else if let Ok(_) = cursor.parse(peek('0'..='9')) {
 			let s = parse_number(cursor)?;
-			Ok(Expression::Number(s))
+			Expression::Number(s)
 		} else {
-			cursor.error()
+			return cursor.error();
+		};
+		skip_comments(cursor)?;
+		while let Ok(_) = cursor.parse('(') {
+			let mut arguments = Vec::new();
+			skip_comments(cursor)?;
+			while let Ok(_) = cursor.parse(not(')')) {
+				arguments.push(parse_expression(cursor, 0)?);
+				skip_comments(cursor)?;
+				match cursor.parse(',') {
+					Ok(_) => {
+						skip_comments(cursor)?;
+						continue
+					}
+					Err(_) => break
+				}
+			}
+			cursor.parse(')')?;
+			// TODO: call
+			skip_comments(cursor)?;
 		}
+		Ok(expression)
 	}
 }
 
@@ -156,23 +180,72 @@ fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Cursor<'a>> {
 	cursor.parse(repeat('0'..='9'))
 }
 
-fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Cursor<'a>> {
 	if let Ok(_) = cursor.parse(keyword("let")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
 		skip_comments(cursor)?;
-		cursor.parse(';')?;
-	} else {
+		cursor.parse('=')?;
+		skip_comments(cursor)?;
 		let expression = parse_expression(cursor, 0)?;
-		let result = interpret_expression(&expression);
-		println!("result = {}", result);
 		skip_comments(cursor)?;
 		cursor.parse(';')?;
+		Ok(ast::Statement::Expression(expression))
+	} else if let Ok(_) = cursor.parse(keyword("if")) {
+		skip_comments(cursor)?;
+		cursor.parse('(')?;
+		skip_comments(cursor)?;
+		let condition = parse_expression(cursor, 0)?;
+		skip_comments(cursor)?;
+		cursor.parse(')')?;
+		skip_comments(cursor)?;
+		cursor.parse('{')?;
+		skip_comments(cursor)?;
+		let mut statements = Vec::new();
+		while let Ok(_) = cursor.parse(not('}')) {
+			statements.push(parse_statement(cursor)?);
+			skip_comments(cursor)?;
+		}
+		cursor.parse('}')?;
+		Ok(ast::Statement::If(ast::If {
+			condition: Box::new(condition),
+			statements,
+		}))
+	} else if let Ok(_) = cursor.parse(keyword("while")) {
+		skip_comments(cursor)?;
+		cursor.parse('(')?;
+		skip_comments(cursor)?;
+		let condition = parse_expression(cursor, 0)?;
+		skip_comments(cursor)?;
+		cursor.parse(')')?;
+		skip_comments(cursor)?;
+		cursor.parse('{')?;
+		skip_comments(cursor)?;
+		let mut statements = Vec::new();
+		while let Ok(_) = cursor.parse(not('}')) {
+			statements.push(parse_statement(cursor)?);
+			skip_comments(cursor)?;
+		}
+		cursor.parse('}')?;
+		Ok(ast::Statement::While(ast::While {
+			condition: Box::new(condition),
+			statements,
+		}))
+	} else if let Ok(_) = cursor.parse(keyword("return")) {
+		skip_comments(cursor)?;
+		let expression = parse_expression(cursor, 0)?;
+		skip_comments(cursor)?;
+		cursor.parse(';')?;
+		Ok(ast::Statement::Return(expression))
+	} else {
+		let expression = parse_expression(cursor, 0)?;
+		skip_comments(cursor)?;
+		cursor.parse(';')?;
+		Ok(ast::Statement::Expression(expression))
 	}
-	Ok(())
 }
 
-fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 	if let Ok(_) = cursor.parse(keyword("class")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
@@ -183,12 +256,13 @@ fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 		Ok(())
 	} else if let Ok(_) = cursor.parse(keyword("func")) {
 		skip_comments(cursor)?;
-		parse_identifier(cursor)?;
+		let name = parse_identifier(cursor)?;
 		skip_comments(cursor)?;
 		cursor.parse('(')?;
 		skip_comments(cursor)?;
+		let mut arguments = Vec::new();
 		while let Ok(_) = cursor.parse(not(')')) {
-			parse_identifier(cursor)?;
+			arguments.push(parse_identifier(cursor)?);
 			skip_comments(cursor)?;
 			match cursor.parse(',') {
 				Ok(_) => {
@@ -202,21 +276,27 @@ fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 		skip_comments(cursor)?;
 		cursor.parse('{')?;
 		skip_comments(cursor)?;
+		let mut statements = Vec::new();
 		while let Ok(_) = cursor.parse(not('}')) {
-			parse_statement(cursor)?;
+			statements.push(parse_statement(cursor)?);
 			skip_comments(cursor)?;
 		}
 		cursor.parse('}')?;
+		program.functions.push(crate::ast::Function {
+			name,
+			arguments,
+			statements,
+		});
 		Ok(())
 	} else {
 		cursor.error()
 	}
 }
 
-fn parse_file<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
 	skip_comments(cursor)?;
 	while let Ok(_) = cursor.parse(peek(any_char)) {
-		parse_toplevel(cursor)?;
+		parse_toplevel(program, cursor)?;
 		skip_comments(cursor)?;
 	}
 	Ok(())
@@ -288,46 +368,14 @@ fn print_error<W: std::io::Write>(cursor: &Cursor, mut write: W) -> std::io::Res
 	Ok(())
 }
 
-fn interpret_expression(expression: &Expression) -> f64 {
-	match expression {
-		Expression::Number(s) => s.parse().unwrap(),
-		Expression::Name(s) => panic!(),
-		Expression::ArithmeticExpression(expression) => {
-			let left = interpret_expression(&expression.left);
-			let right = interpret_expression(&expression.right);
-			match expression.operation {
-				ast::ArithmeticOperation::Add => left + right,
-				ast::ArithmeticOperation::Subtract => left - right,
-				ast::ArithmeticOperation::Multiply => left * right,
-				ast::ArithmeticOperation::Divide => left / right,
-				ast::ArithmeticOperation::Remainder => left % right,
-			}
-		},
-		Expression::RelationalExpression(expression) => {
-			fn to_f64(b: bool) -> f64 {
-				if b { 1.0 } else { 0.0 }
-			}
-			let left = interpret_expression(&expression.left);
-			let right = interpret_expression(&expression.right);
-			match expression.operation {
-				ast::RelationalOperation::Equal => to_f64(left == right),
-				ast::RelationalOperation::NotEqual => to_f64(left != right),
-				ast::RelationalOperation::LessThan => to_f64(left < right),
-				ast::RelationalOperation::LessThanOrEqual => to_f64(left <= right),
-				ast::RelationalOperation::GreaterThan => to_f64(left > right),
-				ast::RelationalOperation::GreaterThanOrEqual => to_f64(left >= right),
-			}
-		},
-	}
-}
-
 fn main() {
 	match std::env::args().nth(1) {
 		Some(arg) => {
 			let file = std::fs::read_to_string(arg).unwrap();
 			let mut cursor = Cursor::new(file.as_str());
-			match parse_file(&mut cursor) {
-				Ok(()) => println!("{}", bold(green("success"))),
+			let mut program = ast::Program::new();
+			match parse_file(&mut program, &mut cursor) {
+				Ok(()) => interpreter::interpret_program(&program),
 				Err(c) => print_error(&c, std::io::stderr().lock()).unwrap(),
 			}
 		},

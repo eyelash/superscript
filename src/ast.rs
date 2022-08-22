@@ -1,8 +1,52 @@
+pub struct Program<'a> {
+	pub functions: Vec<Function<'a>>,
+}
+
+impl <'a> Program<'a> {
+	pub fn new() -> Self {
+		Program {
+			functions: Vec::new(),
+		}
+	}
+	pub fn get_main_function(&self) -> Option<&Function<'a>> {
+		for function in &self.functions {
+			if function.name == "main" {
+				return Some(function)
+			}
+		}
+		None
+	}
+}
+
+pub struct Function<'a> {
+	pub name: &'a str,
+	pub arguments: Vec<&'a str>,
+	pub statements: Vec<Statement<'a>>,
+}
+
+pub enum Statement<'a> {
+	If(If<'a>),
+	While(While<'a>),
+	Return(Expression<'a>),
+	Expression(Expression<'a>),
+}
+
+pub struct If<'a> {
+	pub condition: Box<Expression<'a>>,
+	pub statements: Vec<Statement<'a>>,
+}
+
+pub struct While<'a> {
+	pub condition: Box<Expression<'a>>,
+	pub statements: Vec<Statement<'a>>,
+}
+
 pub enum Expression<'a> {
 	Number(&'a str),
 	Name(&'a str),
 	ArithmeticExpression(ArithmeticExpression<'a>),
 	RelationalExpression(RelationalExpression<'a>),
+	Assign(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 pub struct ArithmeticExpression<'a> {
@@ -111,5 +155,8 @@ impl <'a> Expression<'a> {
 			left: Box::new(left),
 			right: Box::new(right),
 		})
+	}
+	pub fn assign<'b>(name: Expression<'b>, expression: Expression<'b>) -> Expression<'b> {
+		Expression::Assign(Box::new(name), Box::new(expression))
 	}
 }
