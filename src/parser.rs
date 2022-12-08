@@ -177,6 +177,12 @@ pub struct Cursor<'a> {
 	pub i: usize,
 }
 
+pub struct Error<'a> {
+	pub s: &'a str,
+	pub i: usize,
+	pub msg: String,
+}
+
 impl <'a> Cursor<'a> {
 	pub fn new(s: &'a str) -> Self {
 		Cursor {
@@ -184,13 +190,14 @@ impl <'a> Cursor<'a> {
 			i: 0,
 		}
 	}
-	pub fn error<T>(&self) -> Result<T, Cursor<'a>> {
-		Err(Cursor {
+	pub fn error<T>(&self) -> Result<T, Error<'a>> {
+		Err(Error {
 			s: self.s,
 			i: self.i,
+			msg: String::new(),
 		})
 	}
-	pub fn parse<P: Parser>(&mut self, mut p: P) -> Result<&'a str, Cursor<'a>> {
+	pub fn parse<P: Parser>(&mut self, mut p: P) -> Result<&'a str, Error<'a>> {
 		let (_, s) = self.s.split_at(self.i);
 		match p.parse(s) {
 			Some(i) => {
@@ -200,5 +207,27 @@ impl <'a> Cursor<'a> {
 			},
 			None => self.error(),
 		}
+	}
+	pub fn expect(&mut self, s: &str) -> Result<(), Error<'a>> {
+		match self.parse(s) {
+			Ok(_) => Ok(()),
+			Err(err) => Err(Error {
+				msg: format!("expected {}", s),
+				..err
+			}),
+		}
+	}
+}
+
+pub trait ParseResult {
+	fn set_error_message<S: Into<String>>(self, msg: S) -> Self;
+}
+
+impl <'a, T> ParseResult for Result<T, Error<'a>> {
+	fn set_error_message<S: Into<String>>(self, msg: S) -> Self {
+		self.map_err(|err| Error {
+			msg: msg.into(),
+			..err
+		})
 	}
 }

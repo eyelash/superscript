@@ -2,14 +2,14 @@ mod parser;
 mod ast;
 mod interpreter;
 
-use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor};
+use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, Error, ParseResult};
 use ast::Expression;
 
 fn any_char(_c: char) -> bool {
 	true
 }
 
-fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
 	cursor.parse(repeat(char::is_whitespace))?;
 	loop {
 		if let Ok(_) = cursor.parse("/*") {
@@ -62,7 +62,7 @@ const OPERATORS: &'static [OperatorLevel] = &[
 	]),
 ];
 
-fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Cursor<'a>> {
+fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Error<'a>> {
 	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<&'static BinaryOperator> {
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
@@ -168,7 +168,7 @@ fn identifier_char(c: char) -> bool {
 	identifier_start_char(c) || ('0'..='9').contains(&c)
 }
 
-fn parse_identifier<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Cursor<'a>> {
+fn parse_identifier<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error<'a>> {
 	cursor.parse(sequence!(identifier_start_char, repeat(identifier_char)))
 }
 
@@ -176,57 +176,57 @@ fn keyword(k: &'static str) -> impl Parser {
 	sequence!(k, not(identifier_char))
 }
 
-fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Cursor<'a>> {
+fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error<'a>> {
 	cursor.parse(repeat('0'..='9'))
 }
 
-fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Cursor<'a>> {
+fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Error<'a>> {
 	if let Ok(_) = cursor.parse(keyword("let")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
 		skip_comments(cursor)?;
-		cursor.parse('=')?;
+		cursor.expect("=")?;
 		skip_comments(cursor)?;
 		let expression = parse_expression(cursor, 0)?;
 		skip_comments(cursor)?;
-		cursor.parse(';')?;
+		cursor.expect(";")?;
 		Ok(ast::Statement::Expression(expression))
 	} else if let Ok(_) = cursor.parse(keyword("if")) {
 		skip_comments(cursor)?;
-		cursor.parse('(')?;
+		cursor.expect("(")?;
 		skip_comments(cursor)?;
 		let condition = parse_expression(cursor, 0)?;
 		skip_comments(cursor)?;
-		cursor.parse(')')?;
+		cursor.expect(")")?;
 		skip_comments(cursor)?;
-		cursor.parse('{')?;
+		cursor.expect("{")?;
 		skip_comments(cursor)?;
 		let mut statements = Vec::new();
 		while let Ok(_) = cursor.parse(not('}')) {
 			statements.push(parse_statement(cursor)?);
 			skip_comments(cursor)?;
 		}
-		cursor.parse('}')?;
+		cursor.expect("}")?;
 		Ok(ast::Statement::If(ast::If {
 			condition: Box::new(condition),
 			statements,
 		}))
 	} else if let Ok(_) = cursor.parse(keyword("while")) {
 		skip_comments(cursor)?;
-		cursor.parse('(')?;
+		cursor.expect("(")?;
 		skip_comments(cursor)?;
 		let condition = parse_expression(cursor, 0)?;
 		skip_comments(cursor)?;
-		cursor.parse(')')?;
+		cursor.expect(")")?;
 		skip_comments(cursor)?;
-		cursor.parse('{')?;
+		cursor.expect("{")?;
 		skip_comments(cursor)?;
 		let mut statements = Vec::new();
 		while let Ok(_) = cursor.parse(not('}')) {
 			statements.push(parse_statement(cursor)?);
 			skip_comments(cursor)?;
 		}
-		cursor.parse('}')?;
+		cursor.expect("}")?;
 		Ok(ast::Statement::While(ast::While {
 			condition: Box::new(condition),
 			statements,
@@ -235,30 +235,30 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Cu
 		skip_comments(cursor)?;
 		let expression = parse_expression(cursor, 0)?;
 		skip_comments(cursor)?;
-		cursor.parse(';')?;
+		cursor.expect(";")?;
 		Ok(ast::Statement::Return(expression))
 	} else {
 		let expression = parse_expression(cursor, 0)?;
 		skip_comments(cursor)?;
-		cursor.parse(';')?;
+		cursor.expect(";")?;
 		Ok(ast::Statement::Expression(expression))
 	}
 }
 
-fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
 	if let Ok(_) = cursor.parse(keyword("class")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
 		skip_comments(cursor)?;
-		cursor.parse('{')?;
+		cursor.expect("{")?;
 		skip_comments(cursor)?;
-		cursor.parse('}')?;
+		cursor.expect("}")?;
 		Ok(())
 	} else if let Ok(_) = cursor.parse(keyword("func")) {
 		skip_comments(cursor)?;
 		let name = parse_identifier(cursor)?;
 		skip_comments(cursor)?;
-		cursor.parse('(')?;
+		cursor.expect("(")?;
 		skip_comments(cursor)?;
 		let mut arguments = Vec::new();
 		while let Ok(_) = cursor.parse(not(')')) {
@@ -272,16 +272,16 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 				Err(_) => break
 			}
 		}
-		cursor.parse(')')?;
+		cursor.expect(")")?;
 		skip_comments(cursor)?;
-		cursor.parse('{')?;
+		cursor.expect("{")?;
 		skip_comments(cursor)?;
 		let mut statements = Vec::new();
 		while let Ok(_) = cursor.parse(not('}')) {
 			statements.push(parse_statement(cursor)?);
 			skip_comments(cursor)?;
 		}
-		cursor.parse('}')?;
+		cursor.expect("}")?;
 		program.functions.push(crate::ast::Function {
 			name,
 			arguments,
@@ -293,7 +293,7 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 	}
 }
 
-fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Cursor<'a>> {
+fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
 	skip_comments(cursor)?;
 	while let Ok(_) = cursor.parse(peek(any_char)) {
 		parse_toplevel(program, cursor)?;
@@ -341,14 +341,14 @@ fn green<T: std::fmt::Display>(t: T) -> Green<T> {
 	Green(t)
 }
 
-fn print_error<W: std::io::Write>(cursor: &Cursor, mut write: W) -> std::io::Result<()> {
-	writeln!(write, "{}:", bold(red("error")))?;
+fn print_error<W: std::io::Write>(error: &Error, mut write: W) -> std::io::Result<()> {
+	writeln!(write, "{}: {}", bold(red("error")), error.msg)?;
 	let mut start = 0;
-	let mut end = cursor.s.len();
+	let mut end = error.s.len();
 	let mut num = 0;
-	for (i, c) in cursor.s.char_indices() {
+	for (i, c) in error.s.char_indices() {
 		if c == '\n' {
-			if i < cursor.i {
+			if i < error.i {
 				start = i + c.len_utf8();
 				num += 1;
 			} else {
@@ -357,10 +357,10 @@ fn print_error<W: std::io::Write>(cursor: &Cursor, mut write: W) -> std::io::Res
 			}
 		}
 	}
-	let line = cursor.s.get(start..end).unwrap();
+	let line = error.s.get(start..end).unwrap();
 	writeln!(write, "{} | {}", num, line)?;
 	write!(write, "{} | ", num)?;
-	for (_, c) in line.char_indices().take_while(|(i, _)| start + *i < cursor.i) {
+	for (_, c) in line.char_indices().take_while(|(i, _)| start + *i < error.i) {
 		let c = if c.is_whitespace() { c } else { ' ' };
 		write!(write, "{}", c)?;
 	}
@@ -376,7 +376,7 @@ fn main() {
 			let mut program = ast::Program::new();
 			match parse_file(&mut program, &mut cursor) {
 				Ok(()) => interpreter::interpret_program(&program),
-				Err(c) => print_error(&c, std::io::stderr().lock()).unwrap(),
+				Err(e) => print_error(&e, std::io::stderr().lock()).unwrap(),
 			}
 		},
 		None => eprintln!("{}: no input file", bold(red("error"))),
