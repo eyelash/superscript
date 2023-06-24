@@ -41,7 +41,7 @@ impl Parser for &str {
 	}
 }
 
-struct Optional<P: Parser>(P);
+struct Optional<P>(P);
 
 impl <P: Parser> Parser for Optional<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
@@ -56,7 +56,7 @@ pub fn optional<P: Parser>(p: P) -> impl Parser {
 	Optional(p)
 }
 
-struct Repetition<P: Parser>(P);
+struct Repetition<P>(P);
 
 impl <P: Parser> Parser for Repetition<P> {
 	fn parse(&mut self, mut s: &str) -> Option<usize> {
@@ -73,7 +73,7 @@ pub fn repeat<P: Parser>(p: P) -> impl Parser {
 	Repetition(p)
 }
 
-struct Not<P: Parser>(P);
+struct Not<P>(P);
 
 impl <P: Parser> Parser for Not<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
@@ -88,7 +88,7 @@ pub fn not<P: Parser>(p: P) -> impl Parser {
 	Not(p)
 }
 
-struct Peek<P: Parser>(P);
+struct Peek<P>(P);
 
 impl <P: Parser> Parser for Peek<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
@@ -175,8 +175,8 @@ pub fn parse<'a, P: Parser>(mut p: P, s: &'a str) -> Option<(&'a str, &'a str)> 
 }
 
 pub struct Cursor<'a> {
-	pub s: &'a str,
-	pub i: usize,
+	s: &'a str,
+	i: usize,
 }
 
 impl <'a> Cursor<'a> {
@@ -186,10 +186,10 @@ impl <'a> Cursor<'a> {
 			i: 0,
 		}
 	}
-	pub fn error<T>(&self) -> Result<T, Error> {
+	pub fn error<T, S: Into<String>>(&self, msg: S) -> Result<T, Error> {
 		Err(Error {
 			i: self.i,
-			msg: String::new(),
+			msg: msg.into(),
 		})
 	}
 	pub fn parse<P: Parser>(&mut self, mut p: P) -> Result<&'a str, Error> {
@@ -200,7 +200,7 @@ impl <'a> Cursor<'a> {
 				let (result, _) = s.split_at(i);
 				Ok(result)
 			},
-			None => self.error(),
+			None => self.error(String::new()),
 		}
 	}
 	pub fn expect(&mut self, s: &str) -> Result<(), Error> {

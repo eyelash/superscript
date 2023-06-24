@@ -4,7 +4,7 @@ mod ast;
 mod interpreter;
 mod type_checker;
 
-use error::{Error, print_error};
+use error::Error;
 use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, ParseResult};
 use ast::Expression;
 
@@ -17,7 +17,7 @@ fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Error> {
 	loop {
 		if let Ok(_) = cursor.parse("/*") {
 			cursor.parse(repeat(sequence!(not("*/"), any_char)))?;
-			cursor.parse("*/")?;
+			cursor.expect("*/")?;
 		} else if let Ok(_) = cursor.parse("//") {
 			cursor.parse(repeat(sequence!(not('\n'), any_char)))?;
 		} else {
@@ -66,18 +66,18 @@ const OPERATORS: &'static [OperatorLevel] = &[
 ];
 
 fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Error> {
-	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<&'static BinaryOperator> {
+	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<for <'b> fn(Expression<'b>, Expression<'b>) -> Expression<'b>> {
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
-				return Some(operator);
+				return Some(operator.1);
 			}
 		}
 		return None;
 	}
-	fn parse_unary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [UnaryOperator]) -> Option<&'static UnaryOperator> {
+	fn parse_unary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [UnaryOperator]) -> Option<for <'b> fn(Expression<'b>) -> Expression<'b>> {
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
-				return Some(operator);
+				return Some(operator.1);
 			}
 		}
 		return None;
@@ -90,7 +90,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 				while let Some(operator) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let right = parse_expression(cursor, level + 1)?;
-					left = operator.1(left, right);
+					left = operator(left, right);
 					skip_comments(cursor)?;
 				}
 				Ok(left)
@@ -101,7 +101,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 				if let Some(operator) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let right = parse_expression(cursor, level)?;
-					Ok(operator.1(left, right))
+					Ok(operator(left, right))
 				} else {
 					Ok(left)
 				}
@@ -110,7 +110,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 				if let Some(operator) = parse_unary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let expression = parse_expression(cursor, level)?;
-					Ok(operator.1(expression))
+					Ok(operator(expression))
 				} else {
 					parse_expression(cursor, level + 1)
 				}
@@ -119,7 +119,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 				let mut expression = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
 				while let Some(operator) = parse_unary_operator(cursor, operators) {
-					expression = operator.1(expression);
+					expression = operator(expression);
 					skip_comments(cursor)?;
 				}
 				Ok(expression)
@@ -130,7 +130,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			skip_comments(cursor)?;
 			let expression = parse_expression(cursor, 0)?;
 			skip_comments(cursor)?;
-			cursor.parse(')')?;
+			cursor.expect(")")?;
 			expression
 		} else if let Ok(_) = cursor.parse(peek(identifier_start_char)) {
 			let s = parse_identifier(cursor)?;
@@ -139,7 +139,7 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			let s = parse_number(cursor)?;
 			Expression::Number(s)
 		} else {
-			return cursor.error();
+			return cursor.error("expected an expression");
 		};
 		skip_comments(cursor)?;
 		while let Ok(_) = cursor.parse('(') {
@@ -292,7 +292,7 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 		});
 		Ok(())
 	} else {
-		cursor.error()
+		cursor.error("expected a toplevel declaration")
 	}
 }
 
@@ -353,12 +353,14 @@ fn main() {
 			match parse_file(&mut program, &mut cursor) {
 				Ok(()) => {
 					match type_checker::type_check(&program) {
-						Ok(_) => println!("{}", bold(green("type check successful"))),
-						Err(e) => print_error(&e, file.as_str(), std::io::stderr().lock()).unwrap(),
+						Ok(_) => {
+							println!("{}", bold(green("type check successful")));
+							interpreter::interpret_program(&program);
+						},
+						Err(e) => e.print(file.as_str(), std::io::stderr().lock()).unwrap(),
 					}
-					interpreter::interpret_program(&program)
 				},
-				Err(e) => print_error(&e, file.as_str(), std::io::stderr().lock()).unwrap(),
+				Err(e) => e.print(file.as_str(), std::io::stderr().lock()).unwrap(),
 			}
 		},
 		None => eprintln!("{}: no input file", bold(red("error"))),

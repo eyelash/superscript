@@ -30,23 +30,24 @@ fn check_function(function: &crate::ast::Function) -> Result<(), Error> {
 }
 
 fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statement<'a>) -> Result<(), Error> {
+	use crate::ast::{Statement::*, If, While};
 	match statement {
-		crate::ast::Statement::If(crate::ast::If{condition, statements}) => {
+		If(If{condition, statements}) => {
 			assert_type(context, condition, Type::Boolean)?;
 			for statement in statements {
 				check_statement(context, statement)?;
 			}
 		},
-		crate::ast::Statement::While(crate::ast::While{condition, statements}) => {
+		While(While{condition, statements}) => {
 			assert_type(context, condition, Type::Boolean)?;
 			for statement in statements {
 				check_statement(context, statement)?;
 			}
 		},
-		crate::ast::Statement::Return(expression) => {
+		Return(expression) => {
 			check_expression(context, expression)?;
 		},
-		crate::ast::Statement::Expression(expression) => {
+		Expression(expression) => {
 			check_expression(context, expression)?;
 		},
 	}
@@ -54,27 +55,28 @@ fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statem
 }
 
 fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>) -> Result<Type, Error> {
+	use crate::ast::Expression::*;
 	match expression {
-		crate::ast::Expression::Number(s) => Ok(Type::Number),
-		crate::ast::Expression::Name(s) => {
+		Number(s) => Ok(Type::Number),
+		Name(s) => {
 			match context.variables.get(s) {
 				None => error("undefined variable"),
 				Some(ty) => Ok(ty.clone())
 			}
 		},
-		crate::ast::Expression::ArithmeticExpression(expression) => {
+		ArithmeticExpression(expression) => {
 			assert_type(context, &*expression.left, Type::Number)?;
 			assert_type(context, &*expression.right, Type::Number)?;
 			Ok(Type::Number)
 		},
-		crate::ast::Expression::RelationalExpression(expression) => {
+		RelationalExpression(expression) => {
 			assert_type(context, &*expression.left, Type::Number)?;
 			assert_type(context, &*expression.right, Type::Number)?;
 			Ok(Type::Boolean)
 		},
-		crate::ast::Expression::Assign(name, expression) => {
+		Assign(name, expression) => {
 			match **name {
-				crate::ast::Expression::Name(s) => {
+				Name(s) => {
 					let ty = check_expression(context, expression)?;
 					context.variables.insert(s, ty.clone());
 					Ok(ty)
