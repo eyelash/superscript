@@ -1,6 +1,7 @@
 mod parser;
 mod ast;
 mod interpreter;
+mod type_checker;
 
 use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, Error, ParseResult};
 use ast::Expression;
@@ -375,7 +376,13 @@ fn main() {
 			let mut cursor = Cursor::new(file.as_str());
 			let mut program = ast::Program::new();
 			match parse_file(&mut program, &mut cursor) {
-				Ok(()) => interpreter::interpret_program(&program),
+				Ok(()) => {
+					match type_checker::type_check(&program) {
+						Ok(_) => println!("{}", bold(green("type check successful"))),
+						Err(e) => eprintln!("error: {}", bold(red(e))),
+					}
+					interpreter::interpret_program(&program)
+				},
 				Err(e) => print_error(&e, std::io::stderr().lock()).unwrap(),
 			}
 		},
