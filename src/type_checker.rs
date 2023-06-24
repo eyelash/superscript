@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::error::Error;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Type {
@@ -11,14 +12,14 @@ struct Context<'a> {
 	variables: HashMap<&'a str, Type>
 }
 
-pub fn type_check(program: &crate::ast::Program) -> Result<(), &'static str> {
+pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
 	for function in &program.functions {
 		check_function(function)?;
 	}
 	Ok(())
 }
 
-fn check_function(function: &crate::ast::Function) -> Result<(), &'static str> {
+fn check_function(function: &crate::ast::Function) -> Result<(), Error> {
 	let mut context = Context {
 		variables: HashMap::new(),
 	};
@@ -28,7 +29,7 @@ fn check_function(function: &crate::ast::Function) -> Result<(), &'static str> {
 	Ok(())
 }
 
-fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statement<'a>) -> Result<(), &'static str> {
+fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statement<'a>) -> Result<(), Error> {
 	match statement {
 		crate::ast::Statement::If(crate::ast::If{condition, statements}) => {
 			assert_type(context, condition, Type::Boolean)?;
@@ -52,12 +53,12 @@ fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statem
 	Ok(())
 }
 
-fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>) -> Result<Type, &'static str> {
+fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>) -> Result<Type, Error> {
 	match expression {
 		crate::ast::Expression::Number(s) => Ok(Type::Number),
 		crate::ast::Expression::Name(s) => {
 			match context.variables.get(s) {
-				None => Err("undefined variable"),
+				None => error("undefined variable"),
 				Some(ty) => Ok(ty.clone())
 			}
 		},
@@ -78,16 +79,23 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 					context.variables.insert(s, ty.clone());
 					Ok(ty)
 				},
-				_ => Err("left hand of an assignment must be a name"),
+				_ => error("left hand of an assignment must be a name"),
 			}
 		}
 	}
 }
 
-fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, ty: Type) -> Result<(), &'static str> {
+fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, ty: Type) -> Result<(), Error> {
 	if check_expression(context, expression)? == ty {
 		Ok(())
 	} else {
-		Err("type mismatch")
+		error("type mismatch")
 	}
+}
+
+fn error<T, S: Into<String>>(msg: S) -> Result<T, Error> {
+	Err(Error {
+		i: 0,
+		msg: msg.into(),
+	})
 }

@@ -1,16 +1,18 @@
+mod error;
 mod parser;
 mod ast;
 mod interpreter;
 mod type_checker;
 
-use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, Error, ParseResult};
+use error::{Error, print_error};
+use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, ParseResult};
 use ast::Expression;
 
 fn any_char(_c: char) -> bool {
 	true
 }
 
-fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
+fn skip_comments<'a>(cursor: &mut Cursor<'a>) -> Result<(), Error> {
 	cursor.parse(repeat(char::is_whitespace))?;
 	loop {
 		if let Ok(_) = cursor.parse("/*") {
@@ -63,7 +65,7 @@ const OPERATORS: &'static [OperatorLevel] = &[
 	]),
 ];
 
-fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Error<'a>> {
+fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Error> {
 	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<&'static BinaryOperator> {
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
@@ -169,7 +171,7 @@ fn identifier_char(c: char) -> bool {
 	identifier_start_char(c) || ('0'..='9').contains(&c)
 }
 
-fn parse_identifier<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error<'a>> {
+fn parse_identifier<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error> {
 	cursor.parse(sequence!(identifier_start_char, repeat(identifier_char)))
 }
 
@@ -177,11 +179,11 @@ fn keyword(k: &'static str) -> impl Parser {
 	sequence!(k, not(identifier_char))
 }
 
-fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error<'a>> {
+fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<&'a str, Error> {
 	cursor.parse(repeat('0'..='9'))
 }
 
-fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Error<'a>> {
+fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Error> {
 	if let Ok(_) = cursor.parse(keyword("let")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
@@ -246,7 +248,7 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Er
 	}
 }
 
-fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
+fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error> {
 	if let Ok(_) = cursor.parse(keyword("class")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
@@ -294,7 +296,7 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 	}
 }
 
-fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error<'a>> {
+fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error> {
 	skip_comments(cursor)?;
 	while let Ok(_) = cursor.parse(peek(any_char)) {
 		parse_toplevel(program, cursor)?;
@@ -342,33 +344,6 @@ fn green<T: std::fmt::Display>(t: T) -> Green<T> {
 	Green(t)
 }
 
-fn print_error<W: std::io::Write>(error: &Error, mut write: W) -> std::io::Result<()> {
-	writeln!(write, "{}: {}", bold(red("error")), error.msg)?;
-	let mut start = 0;
-	let mut end = error.s.len();
-	let mut num = 0;
-	for (i, c) in error.s.char_indices() {
-		if c == '\n' {
-			if i < error.i {
-				start = i + c.len_utf8();
-				num += 1;
-			} else {
-				end = i;
-				break;
-			}
-		}
-	}
-	let line = error.s.get(start..end).unwrap();
-	writeln!(write, "{} | {}", num, line)?;
-	write!(write, "{} | ", num)?;
-	for (_, c) in line.char_indices().take_while(|(i, _)| start + *i < error.i) {
-		let c = if c.is_whitespace() { c } else { ' ' };
-		write!(write, "{}", c)?;
-	}
-	writeln!(write, "^")?;
-	Ok(())
-}
-
 fn main() {
 	match std::env::args().nth(1) {
 		Some(arg) => {
@@ -379,11 +354,11 @@ fn main() {
 				Ok(()) => {
 					match type_checker::type_check(&program) {
 						Ok(_) => println!("{}", bold(green("type check successful"))),
-						Err(e) => eprintln!("error: {}", bold(red(e))),
+						Err(e) => print_error(&e, file.as_str(), std::io::stderr().lock()).unwrap(),
 					}
 					interpreter::interpret_program(&program)
 				},
-				Err(e) => print_error(&e, std::io::stderr().lock()).unwrap(),
+				Err(e) => print_error(&e, file.as_str(), std::io::stderr().lock()).unwrap(),
 			}
 		},
 		None => eprintln!("{}: no input file", bold(red("error"))),
