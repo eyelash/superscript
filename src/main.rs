@@ -28,6 +28,12 @@ const OPERATORS: &'static [OperatorLevel] = &[
 		BinaryOperator("=", Expression::assign),
 	]),
 	BinaryLeftToRight(&[
+		BinaryOperator("||", Expression::or),
+	]),
+	BinaryLeftToRight(&[
+		BinaryOperator("&&", Expression::and),
+	]),
+	BinaryLeftToRight(&[
 		BinaryOperator("==", Expression::equal),
 		BinaryOperator("!=", Expression::not_equal),
 	]),
@@ -45,6 +51,9 @@ const OPERATORS: &'static [OperatorLevel] = &[
 		BinaryOperator("*", Expression::multiply),
 		BinaryOperator("/", Expression::divide),
 		BinaryOperator("%", Expression::remainder),
+	]),
+	UnaryPrefix(&[
+		UnaryOperator("!", Expression::not),
 	]),
 ];
 

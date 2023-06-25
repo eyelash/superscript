@@ -70,6 +70,15 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 			assert_type(context, &*expression.right, Type::Number)?;
 			Ok(Type::Boolean)
 		},
+		LogicalExpression(expression) => {
+			assert_type(context, &*expression.left, Type::Boolean)?;
+			assert_type(context, &*expression.right, Type::Boolean)?;
+			Ok(Type::Boolean)
+		},
+		Not(expression) => {
+			assert_type(context, &*expression, Type::Boolean)?;
+			Ok(Type::Boolean)
+		},
 		Assign { name, expression } => {
 			match **name {
 				Name(s) => {

@@ -61,6 +61,8 @@ pub enum Expression<'a> {
 	Name(&'a str),
 	ArithmeticExpression(ArithmeticExpression<'a>),
 	RelationalExpression(RelationalExpression<'a>),
+	LogicalExpression(LogicalExpression<'a>),
+	Not(Box<Expression<'a>>),
 	Assign {
 		name: Box<Expression<'a>>,
 		expression: Box<Expression<'a>>,
@@ -98,6 +100,17 @@ pub enum RelationalOperation {
 	LessThanOrEqual,
 	GreaterThan,
 	GreaterThanOrEqual,
+}
+
+pub struct LogicalExpression<'a> {
+	pub operation: LogicalOperation,
+	pub left: Box<Expression<'a>>,
+	pub right: Box<Expression<'a>>,
+}
+
+pub enum LogicalOperation {
+	And,
+	Or,
 }
 
 impl <'a> Expression<'a> {
@@ -177,6 +190,23 @@ impl <'a> Expression<'a> {
 			left,
 			right,
 		}))
+	}
+	pub fn and<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::LogicalExpression(LogicalExpression {
+			operation: LogicalOperation::And,
+			left,
+			right,
+		}))
+	}
+	pub fn or<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::LogicalExpression(LogicalExpression {
+			operation: LogicalOperation::Or,
+			left,
+			right,
+		}))
+	}
+	pub fn not<'b>(expression: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::Not(expression))
 	}
 	pub fn assign<'b>(name: Box<Expression<'b>>, expression: Box<Expression<'b>>) -> Box<Expression<'b>> {
 		Box::new(Expression::Assign {
