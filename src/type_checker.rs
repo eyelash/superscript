@@ -1,16 +1,10 @@
 use std::collections::HashMap;
 use crate::error::{Error, Location};
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum Type {
-	Number,
-	Boolean,
-	Void,
-}
+use crate::ast::Type;
 
 struct Context<'a> {
 	variables: HashMap<&'a str, Type>,
-	locations: &'a HashMap<* const crate::ast::Expression<'a>, Location>,
+	program: &'a crate::ast::Program<'a>,
 }
 
 pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
@@ -23,7 +17,7 @@ pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
 fn check_function(program: &crate::ast::Program, function: &crate::ast::Function) -> Result<(), Error> {
 	let mut context = Context {
 		variables: HashMap::new(),
-		locations: &program.locations,
+		program: &program,
 	};
 	for statement in &function.statements {
 		check_statement(&mut context, statement)?;
@@ -62,7 +56,7 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 		Number(s) => Ok(Type::Number),
 		Name(s) => {
 			match context.variables.get(s) {
-				None => error(context, expression, "undefined variable"),
+				None => error(context, expression, format!("undefined variable \"{}\"", s)),
 				Some(ty) => Ok(ty.clone())
 			}
 		},
@@ -76,7 +70,7 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 			assert_type(context, &*expression.right, Type::Number)?;
 			Ok(Type::Boolean)
 		},
-		Assign(name, expression) => {
+		Assign { name, expression } => {
 			match **name {
 				Name(s) => {
 					let ty = check_expression(context, expression)?;
@@ -85,7 +79,31 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 				},
 				_ => error(context, name, "left hand of an assignment must be a name"),
 			}
-		}
+		},
+		Call { function, arguments } => {
+			match **function {
+				Name(s) => {
+					match context.program.get_function(s) {
+						Some(f) => {
+							if arguments.len() != f.arguments.len() {
+								error(context, function, "invalid number of arguments")
+							} else {
+								let argument_types = f.arguments.iter().map(|(_, ty)| ty);
+								for (argument, expected_ty) in arguments.iter().zip(argument_types) {
+									let actual_ty = check_expression(context, argument)?;
+									if &actual_ty != expected_ty {
+										return error(context, argument, format!("invalid argument type: expected {:?} but found {:?}", expected_ty, actual_ty));
+									}
+								}
+								Ok(f.return_type.clone())
+							}
+						},
+						None => error(context, function, format!("undefined function \"{}\"", s)),
+					}
+				},
+				_ => error(context, function, "left hand of a call must be a name"),
+			}
+		},
 	}
 }
 
@@ -101,7 +119,7 @@ fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expressio
 
 fn error<'a, T, S: Into<String>>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, msg: S) -> Result<T, Error> {
 	let key: * const crate::ast::Expression<'a> = expression;
-	let i = context.locations.get(&key).copied().unwrap_or_default();
+	let i = context.program.locations.get(&key).copied().unwrap_or_default();
 	Err(Error {
 		i,
 		msg: msg.into(),

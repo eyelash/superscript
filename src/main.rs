@@ -180,7 +180,10 @@ impl <'a> Cursor<'a> {
 					}
 				}
 				self.parse(')')?;
-				// TODO: call
+				expression = Box::new(Expression::Call {
+					function: expression,
+					arguments,
+				});
 				self.skip_comments()?;
 			}
 			Ok(expression)
@@ -191,6 +194,15 @@ impl <'a> Cursor<'a> {
 	}
 	fn parse_number(&mut self) -> Result<(&'a str, Location), Error> {
 		self.parse(repeat('0'..='9'))
+	}
+	fn parse_type(&mut self) -> Result<(ast::Type, Location), Error> {
+		if let Ok((_, location)) = self.parse(keyword("number")) {
+			Ok((ast::Type::Number, location))
+		} else if let Ok((_, location)) = self.parse(keyword("boolean")) {
+			Ok((ast::Type::Boolean, location))
+		} else {
+			self.error("expected a type")
+		}
 	}
 	fn parse_statement(&mut self) -> Result<ast::Statement<'a>, Error> {
 		if let Ok(_) = self.parse(keyword("let")) {
@@ -265,7 +277,7 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect("}")?;
 			Ok(())
-		} else if let Ok(_) = self.parse(keyword("func")) {
+		} else if let Ok(_) = self.parse(keyword("function")) {
 			self.skip_comments()?;
 			let (name, _) = self.parse_identifier()?;
 			self.skip_comments()?;
@@ -273,7 +285,12 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			let mut arguments = Vec::new();
 			while let Ok(_) = self.parse(not(')')) {
-				arguments.push(self.parse_identifier()?.0);
+				let (name, _) = self.parse_identifier()?;
+				self.skip_comments()?;
+				self.expect(":")?;
+				self.skip_comments()?;
+				let (ty, _) = self.parse_type()?;
+				arguments.push((name, ty));
 				self.skip_comments()?;
 				match self.parse(',') {
 					Ok(_) => {
@@ -285,6 +302,14 @@ impl <'a> Cursor<'a> {
 			}
 			self.expect(")")?;
 			self.skip_comments()?;
+			let return_type = if let Ok(_) = self.parse(':') {
+				self.skip_comments()?;
+				let (ty, _) = self.parse_type()?;
+				self.skip_comments()?;
+				ty
+			} else {
+				ast::Type::Void
+			};
 			self.expect("{")?;
 			self.skip_comments()?;
 			let mut statements = Vec::new();
@@ -296,6 +321,7 @@ impl <'a> Cursor<'a> {
 			self.program.functions.push(crate::ast::Function {
 				name,
 				arguments,
+				return_type,
 				statements,
 			});
 			Ok(())

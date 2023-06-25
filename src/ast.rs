@@ -1,5 +1,12 @@
 use crate::error::Location;
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Type {
+	Number,
+	Boolean,
+	Void,
+}
+
 pub struct Program<'a> {
 	pub functions: Vec<Function<'a>>,
 	pub locations: std::collections::HashMap<* const Expression<'a>, Location>,
@@ -12,19 +19,23 @@ impl <'a> Program<'a> {
 			locations: std::collections::HashMap::new(),
 		}
 	}
-	pub fn get_main_function(&self) -> Option<&Function<'a>> {
+	pub fn get_function(&self, name: &str) -> Option<&Function<'a>> {
 		for function in &self.functions {
-			if function.name == "main" {
+			if function.name == name {
 				return Some(function)
 			}
 		}
 		None
 	}
+	pub fn get_main_function(&self) -> Option<&Function<'a>> {
+		self.get_function("main")
+	}
 }
 
 pub struct Function<'a> {
 	pub name: &'a str,
-	pub arguments: Vec<&'a str>,
+	pub arguments: Vec<(&'a str, Type)>,
+	pub return_type: Type,
 	pub statements: Vec<Statement<'a>>,
 }
 
@@ -50,7 +61,14 @@ pub enum Expression<'a> {
 	Name(&'a str),
 	ArithmeticExpression(ArithmeticExpression<'a>),
 	RelationalExpression(RelationalExpression<'a>),
-	Assign(Box<Expression<'a>>, Box<Expression<'a>>),
+	Assign {
+		name: Box<Expression<'a>>,
+		expression: Box<Expression<'a>>,
+	},
+	Call {
+		function: Box<Expression<'a>>,
+		arguments: Vec<Box<Expression<'a>>>,
+	},
 }
 
 pub struct ArithmeticExpression<'a> {
@@ -161,6 +179,9 @@ impl <'a> Expression<'a> {
 		}))
 	}
 	pub fn assign<'b>(name: Box<Expression<'b>>, expression: Box<Expression<'b>>) -> Box<Expression<'b>> {
-		Box::new(Expression::Assign(name, expression))
+		Box::new(Expression::Assign {
+			name,
+			expression,
+		})
 	}
 }
