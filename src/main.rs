@@ -1,11 +1,13 @@
 mod error;
 mod parser;
+mod printer;
 mod ast;
 mod interpreter;
 mod type_checker;
 
 use error::{Error, Location};
 use parser::{Parse, optional, repeat, not, peek, sequence, choice, ParseResult};
+use printer::{bold, red, green};
 use ast::Expression;
 
 enum OperatorLevel {
@@ -326,45 +328,6 @@ fn parse_file<'a>(mut cursor: Cursor<'a>) -> Result<ast::Program<'a>, Error> {
 		cursor.skip_comments()?;
 	}
 	Ok(cursor.program)
-}
-
-struct Bold<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Bold<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[1m{}\x1B[22m", self.0)?;
-		Ok(())
-	}
-}
-
-fn bold<T: std::fmt::Display>(t: T) -> Bold<T> {
-	Bold(t)
-}
-
-struct Red<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Red<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[31m{}\x1B[39m", self.0)?;
-		Ok(())
-	}
-}
-
-fn red<T: std::fmt::Display>(t: T) -> Red<T> {
-	Red(t)
-}
-
-struct Green<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Green<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[32m{}\x1B[39m", self.0)?;
-		Ok(())
-	}
-}
-
-fn green<T: std::fmt::Display>(t: T) -> Green<T> {
-	Green(t)
 }
 
 fn main() {

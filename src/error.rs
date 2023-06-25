@@ -1,47 +1,10 @@
+use crate::printer::{bold, red};
+
 pub type Location = usize;
 
 pub struct Error {
 	pub i: Location,
 	pub msg: String,
-}
-
-struct Bold<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Bold<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[1m{}\x1B[22m", self.0)?;
-		Ok(())
-	}
-}
-
-fn bold<T: std::fmt::Display>(t: T) -> Bold<T> {
-	Bold(t)
-}
-
-struct Red<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Red<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[31m{}\x1B[39m", self.0)?;
-		Ok(())
-	}
-}
-
-fn red<T: std::fmt::Display>(t: T) -> Red<T> {
-	Red(t)
-}
-
-struct Green<T>(T);
-
-impl <T: std::fmt::Display> std::fmt::Display for Green<T> {
-	fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-		write!(f, "\x1B[32m{}\x1B[39m", self.0)?;
-		Ok(())
-	}
-}
-
-fn green<T: std::fmt::Display>(t: T) -> Green<T> {
-	Green(t)
 }
 
 impl Error {
