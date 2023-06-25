@@ -28,23 +28,24 @@ fn check_function(program: &crate::ast::Program, function: &crate::ast::Function
 fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statement<'a>) -> Result<(), Error> {
 	use crate::ast::{Statement::*, If, While};
 	match statement {
-		If(If{condition, statements}) => {
+		If(If{condition, statement}) => {
 			assert_type(context, condition, Type::Boolean)?;
-			for statement in statements {
-				check_statement(context, statement)?;
-			}
+			check_statement(context, statement)?;
 		},
-		While(While{condition, statements}) => {
+		While(While{condition, statement}) => {
 			assert_type(context, condition, Type::Boolean)?;
-			for statement in statements {
-				check_statement(context, statement)?;
-			}
+			check_statement(context, statement)?;
 		},
 		Return(expression) => {
 			check_expression(context, expression)?;
 		},
 		Expression(expression) => {
 			check_expression(context, expression)?;
+		},
+		Block(statements) => {
+			for statement in statements {
+				check_statement(context, statement)?;
+			}
 		},
 	}
 	Ok(())

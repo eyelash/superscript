@@ -232,17 +232,10 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect(")")?;
 			self.skip_comments()?;
-			self.expect("{")?;
-			self.skip_comments()?;
-			let mut statements = Vec::new();
-			while let Ok(_) = self.parse(not('}')) {
-				statements.push(self.parse_statement()?);
-				self.skip_comments()?;
-			}
-			self.expect("}")?;
+			let statement = Box::new(self.parse_statement()?);
 			Ok(ast::Statement::If(ast::If {
 				condition,
-				statements,
+				statement,
 			}))
 		} else if let Ok(_) = self.parse(keyword("while")) {
 			self.skip_comments()?;
@@ -252,17 +245,10 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect(")")?;
 			self.skip_comments()?;
-			self.expect("{")?;
-			self.skip_comments()?;
-			let mut statements = Vec::new();
-			while let Ok(_) = self.parse(not('}')) {
-				statements.push(self.parse_statement()?);
-				self.skip_comments()?;
-			}
-			self.expect("}")?;
+			let statement = Box::new(self.parse_statement()?);
 			Ok(ast::Statement::While(ast::While {
 				condition,
-				statements,
+				statement,
 			}))
 		} else if let Ok(_) = self.parse(keyword("return")) {
 			self.skip_comments()?;
@@ -270,6 +256,15 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect(";")?;
 			Ok(ast::Statement::Return(expression))
+		} else if let Ok(_) = self.parse('{') {
+			self.skip_comments()?;
+			let mut statements = Vec::new();
+			while let Ok(_) = self.parse(not('}')) {
+				statements.push(self.parse_statement()?);
+				self.skip_comments()?;
+			}
+			self.expect("}")?;
+			Ok(ast::Statement::Block(statements))
 		} else {
 			let expression = self.parse_expression(0)?;
 			self.skip_comments()?;

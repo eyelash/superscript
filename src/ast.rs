@@ -44,16 +44,17 @@ pub enum Statement<'a> {
 	While(While<'a>),
 	Return(Box<Expression<'a>>),
 	Expression(Box<Expression<'a>>),
+	Block(Vec<Statement<'a>>),
 }
 
 pub struct If<'a> {
 	pub condition: Box<Expression<'a>>,
-	pub statements: Vec<Statement<'a>>,
+	pub statement: Box<Statement<'a>>,
 }
 
 pub struct While<'a> {
 	pub condition: Box<Expression<'a>>,
-	pub statements: Vec<Statement<'a>>,
+	pub statement: Box<Statement<'a>>,
 }
 
 pub enum Expression<'a> {
