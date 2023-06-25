@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::error::Error;
+use crate::error::{Error, Location};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Type {
@@ -10,7 +10,7 @@ enum Type {
 
 struct Context<'a> {
 	variables: HashMap<&'a str, Type>,
-	locations: &'a HashMap<* const crate::ast::Expression<'a>, usize>,
+	locations: &'a HashMap<* const crate::ast::Expression<'a>, Location>,
 }
 
 pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
@@ -101,7 +101,7 @@ fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expressio
 
 fn error<'a, T, S: Into<String>>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, msg: S) -> Result<T, Error> {
 	let key: * const crate::ast::Expression<'a> = expression;
-	let i = context.locations.get(&key).copied().unwrap_or(0);
+	let i = context.locations.get(&key).copied().unwrap_or_default();
 	Err(Error {
 		i,
 		msg: msg.into(),

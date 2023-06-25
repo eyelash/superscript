@@ -1,5 +1,7 @@
+pub type Location = usize;
+
 pub struct Error {
-	pub i: usize,
+	pub i: Location,
 	pub msg: String,
 }
 

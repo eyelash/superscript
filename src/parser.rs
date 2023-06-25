@@ -1,10 +1,10 @@
-use crate::error::Error;
+use crate::error::{Error, Location};
 
-pub trait Parser {
+pub trait Parse {
 	fn parse(&mut self, s: &str) -> Option<usize>;
 }
 
-impl Parser for char {
+impl Parse for char {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match s.chars().next() {
 			Some(c) if *self == c => Some(c.len_utf8()),
@@ -13,7 +13,7 @@ impl Parser for char {
 	}
 }
 
-impl Parser for std::ops::RangeInclusive<char> {
+impl Parse for std::ops::RangeInclusive<char> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match s.chars().next() {
 			Some(c) if self.contains(&c) => Some(c.len_utf8()),
@@ -22,7 +22,7 @@ impl Parser for std::ops::RangeInclusive<char> {
 	}
 }
 
-impl <F: FnMut(char) -> bool> Parser for F {
+impl <F: FnMut(char) -> bool> Parse for F {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match s.chars().next() {
 			Some(c) if self(c) => Some(c.len_utf8()),
@@ -31,7 +31,7 @@ impl <F: FnMut(char) -> bool> Parser for F {
 	}
 }
 
-impl Parser for &str {
+impl Parse for &str {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		if s.starts_with(*self) {
 			Some(self.len())
@@ -43,7 +43,7 @@ impl Parser for &str {
 
 struct Optional<P>(P);
 
-impl <P: Parser> Parser for Optional<P> {
+impl <P: Parse> Parse for Optional<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match self.0.parse(s) {
 			Some(i) => Some(i),
@@ -52,13 +52,13 @@ impl <P: Parser> Parser for Optional<P> {
 	}
 }
 
-pub fn optional<P: Parser>(p: P) -> impl Parser {
+pub fn optional<P: Parse>(p: P) -> impl Parse {
 	Optional(p)
 }
 
 struct Repetition<P>(P);
 
-impl <P: Parser> Parser for Repetition<P> {
+impl <P: Parse> Parse for Repetition<P> {
 	fn parse(&mut self, mut s: &str) -> Option<usize> {
 		let mut sum = 0;
 		while let Some(len) = self.0.parse(s) {
@@ -69,13 +69,13 @@ impl <P: Parser> Parser for Repetition<P> {
 	}
 }
 
-pub fn repeat<P: Parser>(p: P) -> impl Parser {
+pub fn repeat<P: Parse>(p: P) -> impl Parse {
 	Repetition(p)
 }
 
 struct Not<P>(P);
 
-impl <P: Parser> Parser for Not<P> {
+impl <P: Parse> Parse for Not<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match self.0.parse(s) {
 			Some(_) => None,
@@ -84,13 +84,13 @@ impl <P: Parser> Parser for Not<P> {
 	}
 }
 
-pub fn not<P: Parser>(p: P) -> impl Parser {
+pub fn not<P: Parse>(p: P) -> impl Parse {
 	Not(p)
 }
 
 struct Peek<P>(P);
 
-impl <P: Parser> Parser for Peek<P> {
+impl <P: Parse> Parse for Peek<P> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		match self.0.parse(s) {
 			Some(_) => Some(0),
@@ -99,13 +99,13 @@ impl <P: Parser> Parser for Peek<P> {
 	}
 }
 
-pub fn peek<P: Parser>(p: P) -> impl Parser {
+pub fn peek<P: Parse>(p: P) -> impl Parse {
 	Peek(p)
 }
 
 struct FunctionParser<F>(F);
 
-impl <F: Fn(&mut Cursor) -> Option<()>> Parser for FunctionParser<F> {
+impl <F: Fn(&mut Cursor) -> Option<()>> Parse for FunctionParser<F> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		let mut cursor = Cursor::new(s);
 		match self.0(&mut cursor) {
@@ -115,13 +115,13 @@ impl <F: Fn(&mut Cursor) -> Option<()>> Parser for FunctionParser<F> {
 	}
 }
 
-pub fn from_function<F: Fn(&mut Cursor) -> Option<()>>(f: F) -> impl Parser {
+pub fn from_function<F: Fn(&mut Cursor) -> Option<()>>(f: F) -> impl Parse {
 	FunctionParser(f)
 }
 
 struct Sequence<P0, P1>(P0, P1);
 
-impl <P0: Parser, P1: Parser> Parser for Sequence<P0, P1> {
+impl <P0: Parse, P1: Parse> Parse for Sequence<P0, P1> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		let len0 = self.0.parse(s)?;
 		let (_, s) = s.split_at(len0);
@@ -130,7 +130,7 @@ impl <P0: Parser, P1: Parser> Parser for Sequence<P0, P1> {
 	}
 }
 
-pub fn sequence0<P0: Parser, P1: Parser>(p0: P0, p1: P1) -> impl Parser {
+pub fn sequence0<P0: Parse, P1: Parse>(p0: P0, p1: P1) -> impl Parse {
 	Sequence(p0, p1)
 }
 macro_rules! sequence {
@@ -145,7 +145,7 @@ pub(crate) use sequence;
 
 struct Choice<P0, P1>(P0, P1);
 
-impl <P0: Parser, P1: Parser> Parser for Choice<P0, P1> {
+impl <P0: Parse, P1: Parse> Parse for Choice<P0, P1> {
 	fn parse(&mut self, s: &str) -> Option<usize> {
 		if let Some(len) = self.0.parse(s) {
 			return Some(len);
@@ -157,7 +157,7 @@ impl <P0: Parser, P1: Parser> Parser for Choice<P0, P1> {
 	}
 }
 
-pub fn choice0<P0: Parser, P1: Parser>(p0: P0, p1: P1) -> impl Parser {
+pub fn choice0<P0: Parse, P1: Parse>(p0: P0, p1: P1) -> impl Parse {
 	Choice(p0, p1)
 }
 macro_rules! choice {
@@ -170,7 +170,7 @@ macro_rules! choice {
 }
 pub(crate) use choice;
 
-pub fn parse<'a, P: Parser>(mut p: P, s: &'a str) -> Option<(&'a str, &'a str)> {
+pub fn parse<'a, P: Parse>(mut p: P, s: &'a str) -> Option<(&'a str, &'a str)> {
 	p.parse(s).map(|i| s.split_at(i))
 }
 
@@ -192,13 +192,14 @@ impl <'a> Cursor<'a> {
 			msg: msg.into(),
 		})
 	}
-	pub fn parse<P: Parser>(&mut self, mut p: P) -> Result<&'a str, Error> {
+	pub fn parse<P: Parse>(&mut self, mut p: P) -> Result<(&'a str, Location), Error> {
 		let (_, s) = self.s.split_at(self.i);
 		match p.parse(s) {
 			Some(i) => {
+				let location = self.i;
 				self.i += i;
 				let (result, _) = s.split_at(i);
-				Ok(result)
+				Ok((result, location))
 			},
 			None => self.error(String::new()),
 		}
@@ -211,9 +212,6 @@ impl <'a> Cursor<'a> {
 				..err
 			}),
 		}
-	}
-	pub fn get_location(&self) -> usize {
-		self.i
 	}
 }
 

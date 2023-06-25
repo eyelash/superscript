@@ -1,6 +1,8 @@
+use crate::error::Location;
+
 pub struct Program<'a> {
 	pub functions: Vec<Function<'a>>,
-	pub locations: std::collections::HashMap<* const Expression<'a>, usize>,
+	pub locations: std::collections::HashMap<* const Expression<'a>, Location>,
 }
 
 impl <'a> Program<'a> {
