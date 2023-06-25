@@ -9,19 +9,21 @@ enum Type {
 }
 
 struct Context<'a> {
-	variables: HashMap<&'a str, Type>
+	variables: HashMap<&'a str, Type>,
+	locations: &'a HashMap<* const crate::ast::Expression<'a>, usize>,
 }
 
 pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
 	for function in &program.functions {
-		check_function(function)?;
+		check_function(program, function)?;
 	}
 	Ok(())
 }
 
-fn check_function(function: &crate::ast::Function) -> Result<(), Error> {
+fn check_function(program: &crate::ast::Program, function: &crate::ast::Function) -> Result<(), Error> {
 	let mut context = Context {
 		variables: HashMap::new(),
+		locations: &program.locations,
 	};
 	for statement in &function.statements {
 		check_statement(&mut context, statement)?;
@@ -60,7 +62,7 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 		Number(s) => Ok(Type::Number),
 		Name(s) => {
 			match context.variables.get(s) {
-				None => error("undefined variable"),
+				None => error(context, expression, "undefined variable"),
 				Some(ty) => Ok(ty.clone())
 			}
 		},
@@ -81,23 +83,27 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 					context.variables.insert(s, ty.clone());
 					Ok(ty)
 				},
-				_ => error("left hand of an assignment must be a name"),
+				_ => error(context, name, "left hand of an assignment must be a name"),
 			}
 		}
 	}
 }
 
-fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, ty: Type) -> Result<(), Error> {
-	if check_expression(context, expression)? == ty {
+fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, expected_ty: Type) -> Result<(), Error> {
+	let actual_ty = check_expression(context, expression)?;
+	if actual_ty == expected_ty {
 		Ok(())
 	} else {
-		error("type mismatch")
+		let msg = format!("type mismatch: expected a {:?} but found a {:?}", expected_ty, actual_ty);
+		error(context, expression, msg)
 	}
 }
 
-fn error<T, S: Into<String>>(msg: S) -> Result<T, Error> {
+fn error<'a, T, S: Into<String>>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, msg: S) -> Result<T, Error> {
+	let key: * const crate::ast::Expression<'a> = expression;
+	let i = context.locations.get(&key).copied().unwrap_or(0);
 	Err(Error {
-		i: 0,
+		i,
 		msg: msg.into(),
 	})
 }

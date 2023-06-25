@@ -5,8 +5,38 @@ mod interpreter;
 mod type_checker;
 
 use error::Error;
-use parser::{Parser, optional, repeat, not, peek, sequence, choice, Cursor, ParseResult};
+use parser::{Parser, optional, repeat, not, peek, sequence, choice, ParseResult};
 use ast::Expression;
+
+struct Cursor<'a> {
+	cursor: parser::Cursor<'a>,
+	program: ast::Program<'a>,
+}
+
+impl <'a> Cursor<'a> {
+	pub fn new(s: &'a str) -> Self {
+		Cursor {
+			cursor: parser::Cursor::new(s),
+			program: ast::Program::new(),
+		}
+	}
+	pub fn error<T, S: Into<String>>(&self, msg: S) -> Result<T, Error> {
+		self.cursor.error(msg)
+	}
+	pub fn parse<P: Parser>(&mut self, mut p: P) -> Result<&'a str, Error> {
+		self.cursor.parse(p)
+	}
+	pub fn expect(&mut self, s: &str) -> Result<(), Error> {
+		self.cursor.expect(s)
+	}
+	pub fn get_location(&self) -> usize {
+		self.cursor.get_location()
+	}
+	pub fn mark_location(&mut self, expression: Box<Expression<'a>>, location: usize) -> Box<Expression<'a>> {
+		self.program.locations.insert(&*expression, location);
+		expression
+	}
+}
 
 fn any_char(_c: char) -> bool {
 	true
@@ -35,8 +65,10 @@ enum OperatorLevel {
 	UnaryPostfix(&'static [UnaryOperator]),
 }
 
-struct BinaryOperator(&'static str, for <'a> fn(Expression<'a>, Expression<'a>) -> Expression<'a>);
-struct UnaryOperator(&'static str, for <'a> fn(Expression<'a>) -> Expression<'a>);
+type BinaryOperatorFunction = for <'a> fn(Box<Expression<'a>>, Box<Expression<'a>>) -> Box<Expression<'a>>;
+type UnaryOperatorFunction = for <'a> fn(Box<Expression<'a>>) -> Box<Expression<'a>>;
+struct BinaryOperator(&'static str, BinaryOperatorFunction);
+struct UnaryOperator(&'static str, UnaryOperatorFunction);
 
 use OperatorLevel::{BinaryLeftToRight, BinaryRightToLeft, UnaryPrefix, UnaryPostfix};
 
@@ -65,19 +97,21 @@ const OPERATORS: &'static [OperatorLevel] = &[
 	]),
 ];
 
-fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Expression<'a>, Error> {
-	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<for <'b> fn(Expression<'b>, Expression<'b>) -> Expression<'b>> {
+fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Box<Expression<'a>>, Error> {
+	fn parse_binary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [BinaryOperator]) -> Option<(BinaryOperatorFunction, usize)> {
+		let location = cursor.get_location();
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
-				return Some(operator.1);
+				return Some((operator.1, location));
 			}
 		}
 		return None;
 	}
-	fn parse_unary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [UnaryOperator]) -> Option<for <'b> fn(Expression<'b>) -> Expression<'b>> {
+	fn parse_unary_operator<'a>(cursor: &mut Cursor<'a>, operators: &'static [UnaryOperator]) -> Option<(UnaryOperatorFunction, usize)> {
+		let location = cursor.get_location();
 		for operator in operators {
 			if let Ok(_) = cursor.parse(operator.0) {
-				return Some(operator.1);
+				return Some((operator.1, location));
 			}
 		}
 		return None;
@@ -87,10 +121,10 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			BinaryLeftToRight(operators) => {
 				let mut left = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				while let Some(operator) = parse_binary_operator(cursor, operators) {
+				while let Some((operator, location)) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let right = parse_expression(cursor, level + 1)?;
-					left = operator(left, right);
+					left = cursor.mark_location(operator(left, right), location);
 					skip_comments(cursor)?;
 				}
 				Ok(left)
@@ -98,19 +132,19 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			BinaryRightToLeft(operators) => {
 				let left = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				if let Some(operator) = parse_binary_operator(cursor, operators) {
+				if let Some((operator, location)) = parse_binary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let right = parse_expression(cursor, level)?;
-					Ok(operator(left, right))
+					Ok(cursor.mark_location(operator(left, right), location))
 				} else {
 					Ok(left)
 				}
 			},
 			UnaryPrefix(operators) => {
-				if let Some(operator) = parse_unary_operator(cursor, operators) {
+				if let Some((operator, location)) = parse_unary_operator(cursor, operators) {
 					skip_comments(cursor)?;
 					let expression = parse_expression(cursor, level)?;
-					Ok(operator(expression))
+					Ok(cursor.mark_location(operator(expression), location))
 				} else {
 					parse_expression(cursor, level + 1)
 				}
@@ -118,8 +152,8 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			UnaryPostfix(operators) => {
 				let mut expression = parse_expression(cursor, level + 1)?;
 				skip_comments(cursor)?;
-				while let Some(operator) = parse_unary_operator(cursor, operators) {
-					expression = operator(expression);
+				while let Some((operator, location)) = parse_unary_operator(cursor, operators) {
+					expression = cursor.mark_location(operator(expression), location);
 					skip_comments(cursor)?;
 				}
 				Ok(expression)
@@ -133,11 +167,13 @@ fn parse_expression<'a>(cursor: &mut Cursor<'a>, level: usize) -> Result<Express
 			cursor.expect(")")?;
 			expression
 		} else if let Ok(_) = cursor.parse(peek(identifier_start_char)) {
+			let location = cursor.get_location();
 			let s = parse_identifier(cursor)?;
-			Expression::Name(s)
+			cursor.mark_location(Box::new(Expression::Name(s)), location)
 		} else if let Ok(_) = cursor.parse(peek('0'..='9')) {
+			let location = cursor.get_location();
 			let s = parse_number(cursor)?;
-			Expression::Number(s)
+			cursor.mark_location(Box::new(Expression::Number(s)), location)
 		} else {
 			return cursor.error("expected an expression");
 		};
@@ -211,7 +247,7 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Er
 		}
 		cursor.expect("}")?;
 		Ok(ast::Statement::If(ast::If {
-			condition: Box::new(condition),
+			condition,
 			statements,
 		}))
 	} else if let Ok(_) = cursor.parse(keyword("while")) {
@@ -231,7 +267,7 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Er
 		}
 		cursor.expect("}")?;
 		Ok(ast::Statement::While(ast::While {
-			condition: Box::new(condition),
+			condition,
 			statements,
 		}))
 	} else if let Ok(_) = cursor.parse(keyword("return")) {
@@ -248,7 +284,7 @@ fn parse_statement<'a>(cursor: &mut Cursor<'a>) -> Result<ast::Statement<'a>, Er
 	}
 }
 
-fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error> {
+fn parse_toplevel<'a>(cursor: &mut Cursor<'a>) -> Result<(), Error> {
 	if let Ok(_) = cursor.parse(keyword("class")) {
 		skip_comments(cursor)?;
 		parse_identifier(cursor)?;
@@ -285,7 +321,7 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 			skip_comments(cursor)?;
 		}
 		cursor.expect("}")?;
-		program.functions.push(crate::ast::Function {
+		cursor.program.functions.push(crate::ast::Function {
 			name,
 			arguments,
 			statements,
@@ -296,13 +332,13 @@ fn parse_toplevel<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -
 	}
 }
 
-fn parse_file<'a>(program: &mut ast::Program<'a>, cursor: &mut Cursor<'a>) -> Result<(), Error> {
-	skip_comments(cursor)?;
+fn parse_file<'a>(mut cursor: Cursor<'a>) -> Result<ast::Program<'a>, Error> {
+	skip_comments(&mut cursor)?;
 	while let Ok(_) = cursor.parse(peek(any_char)) {
-		parse_toplevel(program, cursor)?;
-		skip_comments(cursor)?;
+		parse_toplevel(&mut cursor)?;
+		skip_comments(&mut cursor)?;
 	}
-	Ok(())
+	Ok(cursor.program)
 }
 
 struct Bold<T>(T);
@@ -348,10 +384,9 @@ fn main() {
 	match std::env::args().nth(1) {
 		Some(arg) => {
 			let file = std::fs::read_to_string(arg).unwrap();
-			let mut cursor = Cursor::new(file.as_str());
-			let mut program = ast::Program::new();
-			match parse_file(&mut program, &mut cursor) {
-				Ok(()) => {
+			let cursor = Cursor::new(file.as_str());
+			match parse_file(cursor) {
+				Ok(program) => {
 					match type_checker::type_check(&program) {
 						Ok(_) => {
 							println!("{}", bold(green("type check successful")));

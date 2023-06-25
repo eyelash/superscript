@@ -1,11 +1,13 @@
 pub struct Program<'a> {
 	pub functions: Vec<Function<'a>>,
+	pub locations: std::collections::HashMap<* const Expression<'a>, usize>,
 }
 
 impl <'a> Program<'a> {
 	pub fn new() -> Self {
 		Program {
 			functions: Vec::new(),
+			locations: std::collections::HashMap::new(),
 		}
 	}
 	pub fn get_main_function(&self) -> Option<&Function<'a>> {
@@ -27,8 +29,8 @@ pub struct Function<'a> {
 pub enum Statement<'a> {
 	If(If<'a>),
 	While(While<'a>),
-	Return(Expression<'a>),
-	Expression(Expression<'a>),
+	Return(Box<Expression<'a>>),
+	Expression(Box<Expression<'a>>),
 }
 
 pub struct If<'a> {
@@ -79,84 +81,84 @@ pub enum RelationalOperation {
 }
 
 impl <'a> Expression<'a> {
-	pub fn add<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::ArithmeticExpression(ArithmeticExpression {
+	pub fn add<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::ArithmeticExpression(ArithmeticExpression {
 			operation: ArithmeticOperation::Add,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn subtract<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::ArithmeticExpression(ArithmeticExpression {
+	pub fn subtract<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::ArithmeticExpression(ArithmeticExpression {
 			operation: ArithmeticOperation::Subtract,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn multiply<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::ArithmeticExpression(ArithmeticExpression {
+	pub fn multiply<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::ArithmeticExpression(ArithmeticExpression {
 			operation: ArithmeticOperation::Multiply,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn divide<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::ArithmeticExpression(ArithmeticExpression {
+	pub fn divide<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::ArithmeticExpression(ArithmeticExpression {
 			operation: ArithmeticOperation::Divide,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn remainder<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::ArithmeticExpression(ArithmeticExpression {
+	pub fn remainder<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::ArithmeticExpression(ArithmeticExpression {
 			operation: ArithmeticOperation::Remainder,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn equal<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn equal<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::Equal,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn not_equal<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn not_equal<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::NotEqual,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn less_than<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn less_than<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::LessThan,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn less_than_or_equal<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn less_than_or_equal<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::LessThanOrEqual,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn greater_than<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn greater_than<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::GreaterThan,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn greater_than_or_equal<'b>(left: Expression<'b>, right: Expression<'b>) -> Expression<'b> {
-		Expression::RelationalExpression(RelationalExpression {
+	pub fn greater_than_or_equal<'b>(left: Box<Expression<'b>>, right: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::RelationalExpression(RelationalExpression {
 			operation: RelationalOperation::GreaterThanOrEqual,
-			left: Box::new(left),
-			right: Box::new(right),
-		})
+			left,
+			right,
+		}))
 	}
-	pub fn assign<'b>(name: Expression<'b>, expression: Expression<'b>) -> Expression<'b> {
-		Expression::Assign(Box::new(name), Box::new(expression))
+	pub fn assign<'b>(name: Box<Expression<'b>>, expression: Box<Expression<'b>>) -> Box<Expression<'b>> {
+		Box::new(Expression::Assign(name, expression))
 	}
 }

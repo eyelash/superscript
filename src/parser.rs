@@ -212,6 +212,9 @@ impl <'a> Cursor<'a> {
 			}),
 		}
 	}
+	pub fn get_location(&self) -> usize {
+		self.i
+	}
 }
 
 pub trait ParseResult {
