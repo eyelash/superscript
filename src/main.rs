@@ -2,7 +2,6 @@ mod error;
 mod parser;
 mod printer;
 mod ast;
-mod interpreter;
 mod type_checker;
 
 use error::{Error, Location};
@@ -338,10 +337,7 @@ fn main() {
 			match parse_file(cursor) {
 				Ok(program) => {
 					match type_checker::type_check(&program) {
-						Ok(_) => {
-							println!("{}", bold(green("type check successful")));
-							interpreter::interpret_program(&program);
-						},
+						Ok(_) => println!("{}", bold(green("type check successful"))),
 						Err(e) => e.print(file.as_str(), std::io::stderr().lock()).unwrap(),
 					}
 				},
