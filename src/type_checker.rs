@@ -1,33 +1,43 @@
 use std::collections::HashMap;
+use crate::scoped_hash_map::ScopedHashMap;
 use crate::error::{Error, Location};
 use crate::ast::Type;
 
 struct Context<'a> {
-	variables: HashMap<&'a str, Type>,
+	variables: ScopedHashMap<&'a str, Type>,
 	program: &'a crate::ast::Program<'a>,
 }
 
 pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
+	let mut context = Context {
+		variables: ScopedHashMap::new(),
+		program,
+	};
 	for function in &program.functions {
-		check_function(program, function)?;
+		check_function(&mut context, function)?;
 	}
 	Ok(())
 }
 
-fn check_function(program: &crate::ast::Program, function: &crate::ast::Function) -> Result<(), Error> {
-	let mut context = Context {
-		variables: HashMap::new(),
-		program: &program,
-	};
+fn check_function<'a>(context: &mut Context<'a>, function: &crate::ast::Function<'a>) -> Result<(), Error> {
+	context.variables.push_scope();
 	for statement in &function.statements {
-		check_statement(&mut context, statement)?;
+		check_statement(context, statement)?;
 	}
+	context.variables.pop_scope();
 	Ok(())
 }
 
 fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statement<'a>) -> Result<(), Error> {
 	use crate::ast::{Statement::*, If, While};
 	match statement {
+		VariableDeclaration { name, expression } => {
+			if let Some(_) = context.variables.get_local(name) {
+				return error(context, expression, format!("variable \"{}\" already defined", name));
+			}
+			let ty = check_expression(context, expression)?;
+			context.variables.insert(name, ty.clone());
+		},
 		If(If{condition, statement}) => {
 			assert_type(context, condition, Type::Boolean)?;
 			check_statement(context, statement)?;
@@ -43,9 +53,11 @@ fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statem
 			check_expression(context, expression)?;
 		},
 		Block(statements) => {
+			context.variables.push_scope();
 			for statement in statements {
 				check_statement(context, statement)?;
 			}
+			context.variables.pop_scope();
 		},
 	}
 	Ok(())
@@ -83,9 +95,13 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 		Assign { name, expression } => {
 			match **name {
 				Name(s) => {
-					let ty = check_expression(context, expression)?;
-					context.variables.insert(s, ty.clone());
-					Ok(ty)
+					match context.variables.get(&s).cloned() {
+						Some(ty) => {
+							assert_type(context, expression, ty.clone())?;
+							Ok(ty)
+						},
+						None => error(context, name, format!("undefined variable \"{}\"", s)),
+					}
 				},
 				_ => error(context, name, "left hand of an assignment must be a name"),
 			}

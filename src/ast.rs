@@ -40,6 +40,10 @@ pub struct Function<'a> {
 }
 
 pub enum Statement<'a> {
+	VariableDeclaration {
+		name: &'a str,
+		expression: Box<Expression<'a>>,
+	},
 	If(If<'a>),
 	While(While<'a>),
 	Return(Box<Expression<'a>>),

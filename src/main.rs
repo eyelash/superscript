@@ -3,6 +3,7 @@ mod parser;
 mod printer;
 mod ast;
 mod type_checker;
+mod scoped_hash_map;
 
 use error::{Error, Location};
 use parser::{Parse, optional, repeat, not, peek, sequence, choice, ParseResult};
@@ -216,14 +217,17 @@ impl <'a> Cursor<'a> {
 	fn parse_statement(&mut self) -> Result<ast::Statement<'a>, Error> {
 		if let Ok(_) = self.parse(keyword("let")) {
 			self.skip_comments()?;
-			self.parse_identifier()?;
+			let (name, _) = self.parse_identifier()?;
 			self.skip_comments()?;
 			self.expect("=")?;
 			self.skip_comments()?;
 			let expression = self.parse_expression(0)?;
 			self.skip_comments()?;
 			self.expect(";")?;
-			Ok(ast::Statement::Expression(expression))
+			Ok(ast::Statement::VariableDeclaration {
+				name,
+				expression,
+			})
 		} else if let Ok(_) = self.parse(keyword("if")) {
 			self.skip_comments()?;
 			self.expect("(")?;
