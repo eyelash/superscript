@@ -54,6 +54,7 @@ pub enum Statement<'a> {
 pub struct If<'a> {
 	pub condition: Box<Expression<'a>>,
 	pub statement: Box<Statement<'a>>,
+	pub else_statement: Option<Box<Statement<'a>>>,
 }
 
 pub struct While<'a> {

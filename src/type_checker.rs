@@ -38,9 +38,12 @@ fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statem
 			let ty = check_expression(context, expression)?;
 			context.variables.insert(name, ty.clone());
 		},
-		If(If{condition, statement}) => {
+		If(If{condition, statement, else_statement}) => {
 			assert_type(context, condition, Type::Boolean)?;
 			check_statement(context, statement)?;
+			if let Some(else_statement) = else_statement {
+				check_statement(context, else_statement)?;
+			}
 		},
 		While(While{condition, statement}) => {
 			assert_type(context, condition, Type::Boolean)?;

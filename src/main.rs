@@ -237,9 +237,17 @@ impl <'a> Cursor<'a> {
 			self.expect(")")?;
 			self.skip_comments()?;
 			let statement = Box::new(self.parse_statement()?);
+			self.skip_comments()?;
+			let else_statement = if let Ok(_) = self.parse(keyword("else")) {
+				self.skip_comments()?;
+				Some(Box::new(self.parse_statement()?))
+			} else {
+				None
+			};
 			Ok(ast::Statement::If(ast::If {
 				condition,
 				statement,
+				else_statement,
 			}))
 		} else if let Ok(_) = self.parse(keyword("while")) {
 			self.skip_comments()?;
