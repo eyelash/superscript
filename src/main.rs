@@ -291,6 +291,31 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect("{")?;
 			self.skip_comments()?;
+			while let Ok(_) = self.parse(not('}')) {
+				self.parse_identifier()?;
+				self.skip_comments()?;
+				if let Ok(_) = self.parse('(') {
+					// method
+					self.parse_arguments()?;
+					self.skip_comments()?;
+					self.parse_return_type()?;
+					self.expect("{")?;
+					self.skip_comments()?;
+					while let Ok(_) = self.parse(not('}')) {
+						self.parse_statement()?;
+						self.skip_comments()?;
+					}
+					self.expect("}")?;
+				} else {
+					// field
+					self.expect(":")?;
+					self.skip_comments()?;
+					self.parse_type()?;
+					self.skip_comments()?;
+					self.expect(";")?;
+				}
+				self.skip_comments()?;
+			}
 			self.expect("}")?;
 			Ok(())
 		} else if let Ok(_) = self.parse(keyword("function")) {
@@ -299,33 +324,9 @@ impl <'a> Cursor<'a> {
 			self.skip_comments()?;
 			self.expect("(")?;
 			self.skip_comments()?;
-			let mut arguments = Vec::new();
-			while let Ok(_) = self.parse(not(')')) {
-				let (name, _) = self.parse_identifier()?;
-				self.skip_comments()?;
-				self.expect(":")?;
-				self.skip_comments()?;
-				let (ty, _) = self.parse_type()?;
-				arguments.push((name, ty));
-				self.skip_comments()?;
-				match self.parse(',') {
-					Ok(_) => {
-						self.skip_comments()?;
-						continue
-					}
-					Err(_) => break
-				}
-			}
-			self.expect(")")?;
+			let arguments = self.parse_arguments()?;
 			self.skip_comments()?;
-			let return_type = if let Ok(_) = self.parse(':') {
-				self.skip_comments()?;
-				let (ty, _) = self.parse_type()?;
-				self.skip_comments()?;
-				ty
-			} else {
-				ast::Type::Void
-			};
+			let return_type = self.parse_return_type()?;
 			self.expect("{")?;
 			self.skip_comments()?;
 			let mut statements = Vec::new();
@@ -343,6 +344,37 @@ impl <'a> Cursor<'a> {
 			Ok(())
 		} else {
 			self.error("expected a toplevel declaration")
+		}
+	}
+	fn parse_arguments(&mut self) -> Result<Vec<(&'a str, ast::Type)>, Error> {
+		let mut arguments = Vec::new();
+		while let Ok(_) = self.parse(not(')')) {
+			let (name, _) = self.parse_identifier()?;
+			self.skip_comments()?;
+			self.expect(":")?;
+			self.skip_comments()?;
+			let (ty, _) = self.parse_type()?;
+			arguments.push((name, ty));
+			self.skip_comments()?;
+			match self.parse(',') {
+				Ok(_) => {
+					self.skip_comments()?;
+					continue
+				}
+				Err(_) => break
+			}
+		}
+		self.expect(")")?;
+		Ok(arguments)
+	}
+	fn parse_return_type(&mut self) -> Result<ast::Type, Error> {
+		if let Ok(_) = self.parse(':') {
+			self.skip_comments()?;
+			let (ty, _) = self.parse_type()?;
+			self.skip_comments()?;
+			Ok(ty)
+		} else {
+			Ok(ast::Type::Void)
 		}
 	}
 }
