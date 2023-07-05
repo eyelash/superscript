@@ -319,13 +319,11 @@ impl <'a> Cursor<'a> {
 			self.expect("{")?;
 			self.skip_comments()?;
 			while let Ok(_) = self.parse(not('}')) {
-				self.parse_identifier()?;
-				self.skip_comments()?;
-				if let Ok(_) = self.parse('(') {
-					// method
+				if let Ok(_) = self.parse(keyword("constructor")) {
+					self.skip_comments()?;
+					self.expect("(")?;
 					self.parse_arguments()?;
 					self.skip_comments()?;
-					self.parse_return_type()?;
 					self.expect("{")?;
 					self.skip_comments()?;
 					while let Ok(_) = self.parse(not('}')) {
@@ -333,15 +331,34 @@ impl <'a> Cursor<'a> {
 						self.skip_comments()?;
 					}
 					self.expect("}")?;
+					self.skip_comments()?;
+				} else if let Ok(_) = self.parse(peek(identifier_start_char)) {
+					self.parse_identifier()?;
+					self.skip_comments()?;
+					if let Ok(_) = self.parse('(') {
+						// method
+						self.parse_arguments()?;
+						self.skip_comments()?;
+						self.parse_return_type()?;
+						self.expect("{")?;
+						self.skip_comments()?;
+						while let Ok(_) = self.parse(not('}')) {
+							self.parse_statement()?;
+							self.skip_comments()?;
+						}
+						self.expect("}")?;
+					} else {
+						// field
+						self.expect(":")?;
+						self.skip_comments()?;
+						self.parse_type()?;
+						self.skip_comments()?;
+						self.expect(";")?;
+					}
+					self.skip_comments()?;
 				} else {
-					// field
-					self.expect(":")?;
-					self.skip_comments()?;
-					self.parse_type()?;
-					self.skip_comments()?;
-					self.expect(";")?;
+					self.error("expected a field or a method")?;
 				}
-				self.skip_comments()?;
 			}
 			self.expect("}")?;
 			Ok(())
