@@ -175,26 +175,53 @@ impl <'a> Cursor<'a> {
 				return self.error("expected an expression");
 			};
 			self.skip_comments()?;
-			while let Ok(_) = self.parse('(') {
-				let mut arguments = Vec::new();
-				self.skip_comments()?;
-				while let Ok(_) = self.parse(not(')')) {
-					arguments.push(self.parse_expression(0)?);
+			loop {
+				if let Ok(_) = self.parse('(') {
+					let mut arguments = Vec::new();
 					self.skip_comments()?;
-					match self.parse(',') {
-						Ok(_) => {
-							self.skip_comments()?;
-							continue
+					while let Ok(_) = self.parse(not(')')) {
+						arguments.push(self.parse_expression(0)?);
+						self.skip_comments()?;
+						match self.parse(',') {
+							Ok(_) => {
+								self.skip_comments()?;
+								continue
+							}
+							Err(_) => break
 						}
-						Err(_) => break
 					}
+					self.parse(')')?;
+					expression = Box::new(Expression::Call {
+						function: expression,
+						arguments,
+					});
+					self.skip_comments()?;
+				} else if let Ok(_) = self.parse('.') {
+					self.skip_comments()?;
+					self.parse_identifier()?;
+					self.skip_comments()?;
+					if let Ok(_) = self.parse('(') {
+						// method call
+						self.skip_comments()?;
+						while let Ok(_) = self.parse(not(')')) {
+							self.parse_expression(0)?;
+							self.skip_comments()?;
+							match self.parse(',') {
+								Ok(_) => {
+									self.skip_comments()?;
+									continue
+								}
+								Err(_) => break
+							}
+						}
+						self.parse(')')?;
+						self.skip_comments()?;
+					} else {
+						// property access
+					}
+				} else {
+					break;
 				}
-				self.parse(')')?;
-				expression = Box::new(Expression::Call {
-					function: expression,
-					arguments,
-				});
-				self.skip_comments()?;
 			}
 			Ok(expression)
 		}
