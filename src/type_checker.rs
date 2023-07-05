@@ -21,6 +21,9 @@ pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
 
 fn check_function<'a>(context: &mut Context<'a>, function: &crate::ast::Function<'a>) -> Result<(), Error> {
 	context.variables.push_scope();
+	for (name, ty) in &function.arguments {
+		context.variables.insert(name, ty.clone());
+	}
 	for statement in &function.statements {
 		check_statement(context, statement)?;
 	}
