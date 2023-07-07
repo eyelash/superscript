@@ -113,16 +113,12 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 		},
 		Assign { name, expression } => {
 			match **name {
-				Name(s) => {
-					match context.variables.get(&s).cloned() {
-						Some(ty) => {
-							assert_type(context, expression, ty.clone())?;
-							Ok(ty)
-						},
-						None => error(context, name, format!("undefined variable \"{}\"", s)),
-					}
+				Name(_) | PropertyAccess {..} => {
+					let ty = check_expression(context, name)?;
+					assert_type(context, expression, ty.clone())?;
+					Ok(ty)
 				},
-				_ => error(context, name, "left hand of an assignment must be a name"),
+				_ => error(context, name, "left hand of an assignment must be a name or a property access"),
 			}
 		},
 		Call { function, arguments } => {
