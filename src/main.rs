@@ -165,6 +165,32 @@ impl <'a> Cursor<'a> {
 				self.skip_comments()?;
 				self.expect(")")?;
 				expression
+			} else if let Ok((_, location)) = self.parse(keyword("new")) {
+				self.skip_comments()?;
+				let (class, _) = self.parse_identifier()?;
+				self.skip_comments()?;
+				self.expect("(")?;
+				let mut arguments = Vec::new();
+				self.skip_comments()?;
+				while let Ok(_) = self.parse(not(')')) {
+					arguments.push(self.parse_expression(0)?);
+					self.skip_comments()?;
+					match self.parse(',') {
+						Ok(_) => {
+							self.skip_comments()?;
+							continue
+						}
+						Err(_) => break
+					}
+				}
+				self.expect(")")?;
+				self.skip_comments()?;
+				self.mark_location(Box::new(Expression::ClassInstantiation {
+					class,
+					arguments,
+				}), location)
+			} else if let Ok((_, location)) = self.parse(keyword("this")) {
+				self.mark_location(Box::new(Expression::This), location)
 			} else if let Ok(_) = self.parse(peek(identifier_start_char)) {
 				let (s, location) = self.parse_identifier()?;
 				self.mark_location(Box::new(Expression::Name(s)), location)
@@ -198,13 +224,14 @@ impl <'a> Cursor<'a> {
 					self.skip_comments()?;
 				} else if let Ok(_) = self.parse('.') {
 					self.skip_comments()?;
-					self.parse_identifier()?;
+					let (name, location) = self.parse_identifier()?;
 					self.skip_comments()?;
 					if let Ok(_) = self.parse('(') {
 						// method call
+						let mut arguments = Vec::new();
 						self.skip_comments()?;
 						while let Ok(_) = self.parse(not(')')) {
-							self.parse_expression(0)?;
+							arguments.push(self.parse_expression(0)?);
 							self.skip_comments()?;
 							match self.parse(',') {
 								Ok(_) => {
@@ -215,9 +242,18 @@ impl <'a> Cursor<'a> {
 							}
 						}
 						self.parse(')')?;
+						expression = self.mark_location(Box::new(Expression::MethodCall {
+							object: expression,
+							method: name,
+							arguments,
+						}), location);
 						self.skip_comments()?;
 					} else {
 						// property access
+						expression = self.mark_location(Box::new(Expression::PropertyAccess {
+							object: expression,
+							property: name,
+						}), location);
 					}
 				} else {
 					break;
@@ -232,11 +268,14 @@ impl <'a> Cursor<'a> {
 	fn parse_number(&mut self) -> Result<(&'a str, Location), Error> {
 		self.parse(repeat('0'..='9'))
 	}
-	fn parse_type(&mut self) -> Result<(ast::Type, Location), Error> {
+	fn parse_type(&mut self) -> Result<(ast::Type<'a>, Location), Error> {
 		if let Ok((_, location)) = self.parse(keyword("number")) {
 			Ok((ast::Type::Number, location))
 		} else if let Ok((_, location)) = self.parse(keyword("boolean")) {
 			Ok((ast::Type::Boolean, location))
+		} else if let Ok(_) = self.parse(peek(identifier_start_char)) {
+			let (s, location) = self.parse_identifier()?;
+			Ok((ast::Type::Class(s), location))
 		} else {
 			self.error("expected a type")
 		}
@@ -314,46 +353,63 @@ impl <'a> Cursor<'a> {
 	fn parse_toplevel(&mut self) -> Result<(), Error> {
 		if let Ok(_) = self.parse(keyword("class")) {
 			self.skip_comments()?;
-			self.parse_identifier()?;
+			let (name, _) = self.parse_identifier()?;
 			self.skip_comments()?;
 			self.expect("{")?;
 			self.skip_comments()?;
+			let mut fields = Vec::new();
+			let mut methods = Vec::new();
 			while let Ok(_) = self.parse(not('}')) {
 				if let Ok(_) = self.parse(keyword("constructor")) {
 					self.skip_comments()?;
 					self.expect("(")?;
-					self.parse_arguments()?;
+					let arguments = self.parse_arguments()?;
 					self.skip_comments()?;
 					self.expect("{")?;
 					self.skip_comments()?;
+					let mut statements = Vec::new();
 					while let Ok(_) = self.parse(not('}')) {
-						self.parse_statement()?;
+						statements.push(self.parse_statement()?);
 						self.skip_comments()?;
 					}
 					self.expect("}")?;
+					methods.push(crate::ast::Function {
+						name: "constructor",
+						arguments,
+						return_type: ast::Type::Void,
+						statements,
+					});
 					self.skip_comments()?;
 				} else if let Ok(_) = self.parse(peek(identifier_start_char)) {
-					self.parse_identifier()?;
+					let (name, _) = self.parse_identifier()?;
 					self.skip_comments()?;
 					if let Ok(_) = self.parse('(') {
 						// method
-						self.parse_arguments()?;
+						let arguments = self.parse_arguments()?;
 						self.skip_comments()?;
-						self.parse_return_type()?;
+						let return_type = self.parse_return_type()?;
 						self.expect("{")?;
 						self.skip_comments()?;
+						let mut statements = Vec::new();
 						while let Ok(_) = self.parse(not('}')) {
-							self.parse_statement()?;
+							statements.push(self.parse_statement()?);
 							self.skip_comments()?;
 						}
 						self.expect("}")?;
+						methods.push(crate::ast::Function {
+							name,
+							arguments,
+							return_type,
+							statements,
+						});
 					} else {
 						// field
 						self.expect(":")?;
 						self.skip_comments()?;
-						self.parse_type()?;
+						let (ty, _) = self.parse_type()?;
 						self.skip_comments()?;
 						self.expect(";")?;
+						fields.push((name, ty));
 					}
 					self.skip_comments()?;
 				} else {
@@ -361,6 +417,11 @@ impl <'a> Cursor<'a> {
 				}
 			}
 			self.expect("}")?;
+			self.program.classes.push(crate::ast::Class {
+				name,
+				fields,
+				methods,
+			});
 			Ok(())
 		} else if let Ok(_) = self.parse(keyword("function")) {
 			self.skip_comments()?;
@@ -390,7 +451,7 @@ impl <'a> Cursor<'a> {
 			self.error("expected a toplevel declaration")
 		}
 	}
-	fn parse_arguments(&mut self) -> Result<Vec<(&'a str, ast::Type)>, Error> {
+	fn parse_arguments(&mut self) -> Result<Vec<(&'a str, ast::Type<'a>)>, Error> {
 		let mut arguments = Vec::new();
 		while let Ok(_) = self.parse(not(')')) {
 			let (name, _) = self.parse_identifier()?;
@@ -411,7 +472,7 @@ impl <'a> Cursor<'a> {
 		self.expect(")")?;
 		Ok(arguments)
 	}
-	fn parse_return_type(&mut self) -> Result<ast::Type, Error> {
+	fn parse_return_type(&mut self) -> Result<ast::Type<'a>, Error> {
 		if let Ok(_) = self.parse(':') {
 			self.skip_comments()?;
 			let (ty, _) = self.parse_type()?;

@@ -4,7 +4,7 @@ use crate::error::{Error, Location};
 use crate::ast::Type;
 
 struct Context<'a> {
-	variables: ScopedHashMap<&'a str, Type>,
+	variables: ScopedHashMap<&'a str, Type<'a>>,
 	program: &'a crate::ast::Program<'a>,
 }
 
@@ -16,6 +16,9 @@ pub fn type_check(program: &crate::ast::Program) -> Result<(), Error> {
 	for function in &program.functions {
 		check_function(&mut context, function)?;
 	}
+	for class in &program.classes {
+		check_class(&mut context, class)?;
+	}
 	Ok(())
 }
 
@@ -26,6 +29,16 @@ fn check_function<'a>(context: &mut Context<'a>, function: &crate::ast::Function
 	}
 	for statement in &function.statements {
 		check_statement(context, statement)?;
+	}
+	context.variables.pop_scope();
+	Ok(())
+}
+
+fn check_class<'a>(context: &mut Context<'a>, class: &crate::ast::Class<'a>) -> Result<(), Error> {
+	context.variables.push_scope();
+	context.variables.insert("this", Type::Class(class.name));
+	for method in &class.methods {
+		check_function(context, method)?;
 	}
 	context.variables.pop_scope();
 	Ok(())
@@ -69,7 +82,7 @@ fn check_statement<'a>(context: &mut Context<'a>, statement: &crate::ast::Statem
 	Ok(())
 }
 
-fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>) -> Result<Type, Error> {
+fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>) -> Result<Type<'a>, Error> {
 	use crate::ast::Expression::*;
 	match expression {
 		Number(s) => Ok(Type::Number),
@@ -117,18 +130,8 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 				Name(s) => {
 					match context.program.get_function(s) {
 						Some(f) => {
-							if arguments.len() != f.arguments.len() {
-								error(context, function, "invalid number of arguments")
-							} else {
-								let argument_types = f.arguments.iter().map(|(_, ty)| ty);
-								for (argument, expected_ty) in arguments.iter().zip(argument_types) {
-									let actual_ty = check_expression(context, argument)?;
-									if &actual_ty != expected_ty {
-										return error(context, argument, format!("invalid argument type: expected {:?} but found {:?}", expected_ty, actual_ty));
-									}
-								}
-								Ok(f.return_type.clone())
-							}
+							check_arguments(context, function, f, arguments)?;
+							Ok(f.return_type.clone())
 						},
 						None => error(context, function, format!("undefined function \"{}\"", s)),
 					}
@@ -136,6 +139,77 @@ fn check_expression<'a>(context: &mut Context<'a>, expression: &crate::ast::Expr
 				_ => error(context, function, "left hand of a call must be a name"),
 			}
 		},
+		ClassInstantiation { class, arguments } => {
+			match context.program.get_class(class) {
+				Some(c) => {
+					if let Some(f) = c.get_method("constructor") {
+						check_arguments(context, expression, f, arguments)?;
+					} else {
+						if arguments.len() != 0 {
+							return error(context, expression, "invalid number of arguments");
+						}
+					}
+					Ok(Type::Class(class))
+				},
+				None => error(context, expression, format!("undefined class \"{}\"", class)),
+			}
+		},
+		PropertyAccess { object, property } => {
+			match check_expression(context, object)? {
+				Type::Class(class) => {
+					match context.program.get_class(class) {
+						Some(c) => {
+							match c.get_field(property) {
+								Some(ty) => Ok(ty),
+								None => error(context, expression, format!("class \"{}\" does not have a field \"{}\"", class, property)),
+							}
+						},
+						None => error(context, expression, format!("undefined class \"{}\"", class)),
+					}
+				},
+				_ => error(context, expression, "trying to access a property on an expression that is not a class"),
+			}
+		},
+		MethodCall { object, method, arguments } => {
+			match check_expression(context, object)? {
+				Type::Class(class) => {
+					match context.program.get_class(class) {
+						Some(c) => {
+							match c.get_method(method) {
+								Some(f) => {
+									check_arguments(context, expression, f, arguments)?;
+									Ok(f.return_type.clone())
+								},
+								None => error(context, expression, format!("class \"{}\" does not have a method \"{}\"", class, method)),
+							}
+						},
+						None => error(context, expression, format!("undefined class \"{}\"", class)),
+					}
+				},
+				_ => error(context, expression, "trying to access a property on an expression that is not a class"),
+			}
+		},
+		This => {
+			match context.variables.get(&"this") {
+				None => error(context, expression, "this is not available outside of a method"),
+				Some(ty) => Ok(ty.clone()),
+			}
+		},
+	}
+}
+
+fn check_arguments<'a>(context: &mut Context<'a>, expression: &crate::ast::Expression, f: &crate::ast::Function, arguments: &Vec<Box<crate::ast::Expression<'a>>>) -> Result<(), Error> {
+	if arguments.len() != f.arguments.len() {
+		error(context, expression, "invalid number of arguments")
+	} else {
+		let argument_types = f.arguments.iter().map(|(_, ty)| ty);
+		for (argument, expected_ty) in arguments.iter().zip(argument_types) {
+			let actual_ty = check_expression(context, argument)?;
+			if &actual_ty != expected_ty {
+				return error(context, argument, format!("invalid argument type: expected {:?} but found {:?}", expected_ty, actual_ty));
+			}
+		}
+		Ok(())
 	}
 }
 
@@ -149,8 +223,8 @@ fn assert_type<'a>(context: &mut Context<'a>, expression: &crate::ast::Expressio
 	}
 }
 
-fn error<'a, T, S: Into<String>>(context: &mut Context<'a>, expression: &crate::ast::Expression<'a>, msg: S) -> Result<T, Error> {
-	let key: * const crate::ast::Expression<'a> = expression;
+fn error<T, S: Into<String>>(context: &Context, expression: &crate::ast::Expression, msg: S) -> Result<T, Error> {
+	let key: * const crate::ast::Expression = expression;
 	let i = context.program.locations.get(&key).copied().unwrap_or_default();
 	Err(Error {
 		i,

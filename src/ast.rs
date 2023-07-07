@@ -1,14 +1,16 @@
 use crate::error::Location;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Type {
+pub enum Type<'a> {
 	Number,
 	Boolean,
 	Void,
+	Class(&'a str),
 }
 
 pub struct Program<'a> {
 	pub functions: Vec<Function<'a>>,
+	pub classes: Vec<Class<'a>>,
 	pub locations: std::collections::HashMap<* const Expression<'a>, Location>,
 }
 
@@ -16,13 +18,14 @@ impl <'a> Program<'a> {
 	pub fn new() -> Self {
 		Program {
 			functions: Vec::new(),
+			classes: Vec::new(),
 			locations: std::collections::HashMap::new(),
 		}
 	}
 	pub fn get_function(&self, name: &str) -> Option<&Function<'a>> {
 		for function in &self.functions {
 			if function.name == name {
-				return Some(function)
+				return Some(function);
 			}
 		}
 		None
@@ -30,13 +33,49 @@ impl <'a> Program<'a> {
 	pub fn get_main_function(&self) -> Option<&Function<'a>> {
 		self.get_function("main")
 	}
+	pub fn get_class(&self, name: &str) -> Option<&Class<'a>> {
+		for class in &self.classes {
+			if class.name == name {
+				return Some(class);
+			}
+		}
+		None
+	}
 }
 
 pub struct Function<'a> {
 	pub name: &'a str,
-	pub arguments: Vec<(&'a str, Type)>,
-	pub return_type: Type,
+	pub arguments: Vec<(&'a str, Type<'a>)>,
+	pub return_type: Type<'a>,
 	pub statements: Vec<Statement<'a>>,
+}
+
+pub struct Class<'a> {
+	pub name: &'a str,
+	pub fields: Vec<(&'a str, Type<'a>)>,
+	pub methods: Vec<Function<'a>>,
+}
+
+impl <'a> Class<'a> {
+	pub fn get_method(&self, name: &str) -> Option<&Function<'a>> {
+		for method in &self.methods {
+			if method.name == name {
+				return Some(method);
+			}
+		}
+		None
+	}
+	pub fn get_constructor(&self) -> Option<&Function<'a>> {
+		self.get_method("constructor")
+	}
+	pub fn get_field(&self, name: &str) -> Option<Type<'a>> {
+		for (field_name, field_type) in &self.fields {
+			if field_name == &name {
+				return Some(field_type.clone());
+			}
+		}
+		None
+	}
 }
 
 pub enum Statement<'a> {
@@ -77,6 +116,20 @@ pub enum Expression<'a> {
 		function: Box<Expression<'a>>,
 		arguments: Vec<Box<Expression<'a>>>,
 	},
+	ClassInstantiation {
+		class: &'a str,
+		arguments: Vec<Box<Expression<'a>>>,
+	},
+	PropertyAccess {
+		object: Box<Expression<'a>>,
+		property: &'a str,
+	},
+	MethodCall {
+		object: Box<Expression<'a>>,
+		method: &'a str,
+		arguments: Vec<Box<Expression<'a>>>,
+	},
+	This,
 }
 
 pub struct ArithmeticExpression<'a> {
