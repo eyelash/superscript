@@ -57,3 +57,35 @@ impl <D: Display, T: IntoIterator<Item=D> + Clone> Display for CommaSeparated<T>
 pub fn comma_separated<D: Display, T: IntoIterator<Item=D> + Clone>(t: T) -> impl Display {
 	CommaSeparated(t)
 }
+
+pub struct Printer<W> {
+	write: W,
+	indentation: usize,
+}
+
+impl<W: std::io::Write> Printer<W> {
+	pub fn new(write: W) -> Self {
+		Printer {
+			write,
+			indentation: 0,
+		}
+	}
+	pub fn println<D: Display>(&mut self, d: D) -> std::io::Result<()> {
+		for _ in 0..self.indentation {
+			write!(self.write, "\t")?;
+		}
+		writeln!(self.write, "{}", d)?;
+		Ok(())
+	}
+	pub fn increase_indentation(&mut self) {
+		self.indentation += 1;
+	}
+	pub fn decrease_indentation(&mut self) {
+		self.indentation -= 1;
+	}
+	pub fn indented<F: FnOnce(&mut Self)>(&mut self, mut f: F) {
+		self.indentation += 1;
+		f(self);
+		self.indentation -= 1;
+	}
+}

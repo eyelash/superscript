@@ -4,6 +4,7 @@ mod printer;
 mod ast;
 mod type_checker;
 mod scoped_hash_map;
+mod codegen;
 
 use error::{Error, Location};
 use parser::{Parse, optional, repeat, not, peek, sequence, choice, ParseResult};
@@ -516,7 +517,11 @@ fn main() {
 			match parse_file(cursor) {
 				Ok(program) => {
 					match type_checker::type_check(&program) {
-						Ok(_) => println!("{}", bold(green("type check successful"))),
+						Ok(_) => {
+							println!("{}", bold(green("type check successful")));
+							let mut printer = printer::Printer::new(std::io::stdout());
+							codegen::js::generate(&mut printer, &program);
+						},
 						Err(e) => e.print(file.as_str(), std::io::stderr().lock()).unwrap(),
 					}
 				},
